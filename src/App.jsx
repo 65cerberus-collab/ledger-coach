@@ -129,35 +129,34 @@ const GlobalStyles = () => (
 const uid = (p = "id") => p + "_" + Math.random().toString(36).slice(2, 9);
 
 /* ============================================================
-   UNIT HELPERS — internal canonical storage is kg
+   UNIT HELPERS — internal canonical storage is lb (weight) and in (length)
    ============================================================ */
-const KG_TO_LB = 2.2046226218;
-const toDisplay = (kg, unit) => {
-  if (kg == null || kg === "" || isNaN(Number(kg))) return "";
-  const n = Number(kg);
-  if (unit === "lb") return Math.round(n * KG_TO_LB * 10) / 10;
+const LB_PER_KG = 2.20462;
+const toDisplay = (lb, unit) => {
+  if (lb == null || lb === "" || isNaN(Number(lb))) return "";
+  const n = Number(lb);
+  if (unit === "kg") return Math.round((n / LB_PER_KG) * 10) / 10;
   return Math.round(n * 10) / 10;
 };
 const fromDisplay = (value, unit) => {
   if (value == null || value === "" || isNaN(Number(value))) return 0;
   const n = Number(value);
-  if (unit === "lb") return Math.round((n / KG_TO_LB) * 100) / 100;
+  if (unit === "kg") return Math.round(n * LB_PER_KG * 100) / 100;
   return Math.round(n * 100) / 100;
 };
 const unitLabel = (unit) => unit === "lb" ? "lbs" : "kg";
 
-// Length helpers — canonical storage is cm; "in" for imperial.
-const CM_TO_IN = 0.3937007874;
-const toDisplayLen = (cm, unit) => {
-  if (cm == null || cm === "" || isNaN(Number(cm))) return "";
-  const n = Number(cm);
-  if (unit === "in") return Math.round(n * CM_TO_IN * 10) / 10;
+const CM_PER_IN = 2.54;
+const toDisplayLen = (inches, unit) => {
+  if (inches == null || inches === "" || isNaN(Number(inches))) return "";
+  const n = Number(inches);
+  if (unit === "cm") return Math.round(n * CM_PER_IN * 10) / 10;
   return Math.round(n * 10) / 10;
 };
 const fromDisplayLen = (value, unit) => {
   if (value == null || value === "" || isNaN(Number(value))) return 0;
   const n = Number(value);
-  if (unit === "in") return Math.round((n / CM_TO_IN) * 100) / 100;
+  if (unit === "cm") return Math.round((n / CM_PER_IN) * 100) / 100;
   return Math.round(n * 100) / 100;
 };
 const lenLabel = (unit) => unit === "in" ? "in" : "cm";
@@ -481,11 +480,11 @@ const SEED_COACHES = [
 ];
 
 const SEED_CLIENTS = [
-  { id: uid("c"), coachId: "coach_alex", name: "Maya Okafor", age: 34, goals: "Build strength, run 10K under 52min", injuries: [], equipment: ["barbell","dumbbell","kettlebell","machine"], level: "intermediate", notes: "Trains 3x/week. Prefers morning sessions." , since: "2024-08-15", bodyweight: [{date: addDays(today(),-45), kg: 64.2},{date: addDays(today(),-30), kg: 64.0},{date: addDays(today(),-15), kg: 63.6},{date: today(), kg: 63.4}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Daniel Kaur", age: 47, goals: "Maintain mobility, reduce back stiffness", injuries: ["low back injury"], equipment: ["dumbbell","bodyweight"], level: "beginner", notes: "Desk job. Avoid heavy spinal loading.", since: "2025-01-10", bodyweight: [{date: addDays(today(),-30), kg: 82.1},{date: today(), kg: 81.4}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Serafina Liu", age: 29, goals: "Prenatal strength — 2nd trimester", injuries: [], equipment: ["dumbbell","bodyweight","band"], level: "intermediate", notes: "Focus on pelvic floor and posterior chain. No supine after week 16.", since: "2024-11-02", bodyweight: [{date: today(), kg: 58.8}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Jonah Reeves", age: 22, goals: "Add 8kg of muscle, first powerlifting meet", injuries: [], equipment: ["barbell","dumbbell","rack","bench","machine"], level: "advanced", notes: "Aggressive training volume. Loves heavy.", since: "2024-06-01", bodyweight: [{date: addDays(today(),-60), kg: 76.5},{date: addDays(today(),-30), kg: 78.1},{date: today(), kg: 79.4}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Priya Shah", age: 38, goals: "Rebuild after shoulder surgery", injuries: ["shoulder injury"], equipment: ["dumbbell","band","bodyweight"], level: "beginner", notes: "Cleared for light pressing. No overhead yet.", since: "2025-03-20", bodyweight: [{date: today(), kg: 61.0}] },
+  { id: uid("c"), coachId: "coach_alex", name: "Maya Okafor", age: 34, goals: "Build strength, run 10K under 52min", injuries: [], equipment: ["barbell","dumbbell","kettlebell","machine"], level: "intermediate", notes: "Trains 3x/week. Prefers morning sessions." , since: "2024-08-15", bodyweight: [{date: addDays(today(),-45), lb: 141.5},{date: addDays(today(),-30), lb: 141.1},{date: addDays(today(),-15), lb: 140.2},{date: today(), lb: 139.8}] },
+  { id: uid("c"), coachId: "coach_alex", name: "Daniel Kaur", age: 47, goals: "Maintain mobility, reduce back stiffness", injuries: ["low back injury"], equipment: ["dumbbell","bodyweight"], level: "beginner", notes: "Desk job. Avoid heavy spinal loading.", since: "2025-01-10", bodyweight: [{date: addDays(today(),-30), lb: 181.0},{date: today(), lb: 179.5}] },
+  { id: uid("c"), coachId: "coach_alex", name: "Serafina Liu", age: 29, goals: "Prenatal strength — 2nd trimester", injuries: [], equipment: ["dumbbell","bodyweight","band"], level: "intermediate", notes: "Focus on pelvic floor and posterior chain. No supine after week 16.", since: "2024-11-02", bodyweight: [{date: today(), lb: 129.6}] },
+  { id: uid("c"), coachId: "coach_alex", name: "Jonah Reeves", age: 22, goals: "Add 8kg of muscle, first powerlifting meet", injuries: [], equipment: ["barbell","dumbbell","rack","bench","machine"], level: "advanced", notes: "Aggressive training volume. Loves heavy.", since: "2024-06-01", bodyweight: [{date: addDays(today(),-60), lb: 168.7},{date: addDays(today(),-30), lb: 172.2},{date: today(), lb: 175.1}] },
+  { id: uid("c"), coachId: "coach_alex", name: "Priya Shah", age: 38, goals: "Rebuild after shoulder surgery", injuries: ["shoulder injury"], equipment: ["dumbbell","band","bodyweight"], level: "beginner", notes: "Cleared for light pressing. No overhead yet.", since: "2025-03-20", bodyweight: [{date: today(), lb: 134.5}] },
 ];
 
 /* ============================================================
@@ -572,8 +571,76 @@ export default function CoachApp() {
         blocks: (wo.blocks || []).map(b => ({ unit: "lb", ...b }))
       }));
 
-      // Logs: migrate per-set logs → single-entry-per-exercise (if schema stale)
+      // One-shot kg→lb / cm→in migration. Guarded by version so it runs at most
+      // once per device — on save, version is bumped to 7 and this branch is
+      // skipped on every subsequent load. Pre-v7 data was stored in kg-canonical
+      // (weights) and cm-canonical (lengths); v7 stores lb and inches. Fresh
+      // installs (version=0) land on lb/in seed data and skip the flip.
+      const needsUnitFlip = version > 0 && version < 7;
       let logsInit = l || [];
+      let clientsAfterFlip = clientsInit;
+      let workoutsAfterFlip = workoutsInit;
+      if (needsUnitFlip) {
+        const KG_TO_LB = 2.20462;
+        const CM_PER_INCH = 2.54;
+        const round2 = (n) => Math.round(n * 100) / 100;
+        const kgToLb = (v) => v == null ? v : round2(Number(v) * KG_TO_LB);
+        const cmToIn = (v) => v == null ? v : round2(Number(v) / CM_PER_INCH);
+
+        // Only convert sources that actually came from storage. Seed data
+        // (used when storage was null) is already authored in lb/in canonical.
+        if (w) {
+          workoutsAfterFlip = workoutsInit.map(wo => ({
+            ...wo,
+            blocks: (wo.blocks || []).map(b => ({
+              ...b,
+              weight: b.weight == null ? null : kgToLb(b.weight),
+            })),
+          }));
+        }
+
+        logsInit = logsInit.map(lg => ({
+          ...lg,
+          actualWeight: lg.actualWeight == null ? null : kgToLb(lg.actualWeight),
+          perSet: Array.isArray(lg.perSet)
+            ? lg.perSet.map(s => ({
+                ...s,
+                weight: s.weight == null ? null : kgToLb(s.weight),
+              }))
+            : lg.perSet,
+        }));
+
+        if (c) {
+          clientsAfterFlip = clientsInit.map(cl => {
+            const next = { ...cl };
+            if (Array.isArray(cl.bodyweight)) {
+              next.bodyweight = cl.bodyweight.map(b => {
+                if (b == null || b.kg === undefined) return b;
+                const { kg, ...rest } = b;
+                return { ...rest, lb: kgToLb(kg) };
+              });
+            }
+            if (Array.isArray(cl.measurements)) {
+              next.measurements = cl.measurements.map(m => {
+                if (m == null) return m;
+                const out = { ...m };
+                if (m.valueKg !== undefined) {
+                  out.valueLb = kgToLb(m.valueKg);
+                  delete out.valueKg;
+                }
+                if (m.valueCm !== undefined) {
+                  out.valueIn = cmToIn(m.valueCm);
+                  delete out.valueCm;
+                }
+                return out;
+              });
+            }
+            return next;
+          });
+        }
+      }
+
+      // Logs: migrate per-set logs → single-entry-per-exercise (if schema stale)
       if (stale && logsInit.length > 0 && logsInit[0] && !("mode" in logsInit[0])) {
         // Old format: many logs per workout/exercise (one per set)
         // New format: one log per workout/exercise with mode+perSet
@@ -586,7 +653,7 @@ export default function CoachApp() {
         logsInit = Object.entries(grouped).map(([key, sets]) => {
           const first = sets[0];
           // Find the workout block to get planned values
-          const wo = workoutsInit.find(x => x.id === first.workoutId);
+          const wo = workoutsAfterFlip.find(x => x.id === first.workoutId);
           const block = wo?.blocks.find(bl => bl.exId === first.exId);
           const planned = block ? { sets: block.sets, reps: block.reps, weight: block.weight } : null;
 
@@ -618,7 +685,7 @@ export default function CoachApp() {
         // Ensure every existing log has a unit field
         logsInit = logsInit.map(lg => {
           if (lg.unit) return lg;
-          const wo = workoutsInit.find(x => x.id === lg.workoutId);
+          const wo = workoutsAfterFlip.find(x => x.id === lg.workoutId);
           const block = wo?.blocks.find(bl => bl.exId === lg.exId);
           return { ...lg, unit: block?.unit || migrationUnit };
         });
@@ -626,9 +693,9 @@ export default function CoachApp() {
 
       setCoaches(coachesInit);
       setCurrentCoachId(currentInit);
-      setAllClients(clientsInit);
+      setAllClients(clientsAfterFlip);
       setExercises(exercisesInit);
-      setAllWorkouts(workoutsInit);
+      setAllWorkouts(workoutsAfterFlip);
       setAllLogs(logsInit);
       setAllAttendance(a || []);
 
@@ -1413,7 +1480,7 @@ Drag blocks to reorder. The arrows on the left side of each block also move it u
 
 ## Per-block lb/kg toggle
 
-Each block has its own little **lb / kg** toggle next to the delete button. Toggling it changes the display unit — the canonical weight is preserved, so flipping a 100 lb block to kg shows 45.4 kg, not a different load. Default is lb.
+Each block has its own little **lb / kg** toggle next to the delete button. Toggling it changes the display unit — the canonical weight is preserved, so flipping a 100 lb block to kg shows 45.4 kg, the same load. Default is lb.
 
 ## Balance suggestion
 
@@ -1512,7 +1579,7 @@ The Measurements tab tracks dated entries for:
 - **Arm L / Arm R** — bilateral
 - **Thigh L / Thigh R** — bilateral
 
-Each input has its own inline lb/kg or in/cm toggle. The canonical storage is metric (kg, cm) — toggling units doesn't change the underlying value, just how it's displayed.
+Each input has its own inline lb/kg or in/cm toggle. The canonical storage is imperial (lb, in) — toggling units doesn't change the underlying value, just how it's displayed.
 
 ## Adding a measurement
 
@@ -1609,7 +1676,7 @@ The reps field is the exception. It stays free-text because reps can be patterns
 
 ## Per-block lb/kg toggle behavior
 
-Toggling lb ↔ kg on a block doesn't change the actual weight — only how it's displayed. The underlying storage is always kg. A 100 lb plan toggled to kg shows as 45.4 kg, the same load.
+Toggling lb ↔ kg on a block doesn't change the actual weight — only how it's displayed. The underlying storage is always lb. A 100 lb plan toggled to kg shows as 45.4 kg, the same load.
 
 ## App stuck on "loading…"
 
@@ -1638,7 +1705,7 @@ Your client data — names, goals, injuries, measurements, logs — never leaves
 
 ## Schema version
 
-The current data schema version is 6. The app handles migrations automatically when loading older data.
+The current data schema version is 7. The app handles migrations automatically when loading older data. Canonical storage is lb (weight) and in (length); display units (lb/kg, in/cm) are a per-input toggle.
 
 ## Credits
 
@@ -2238,7 +2305,7 @@ function ClientHeader({ client, unitPref = "lb" }) {
         <div className="flex items-center gap-2 mt-3 flex-wrap">
           <span className="chip">{client.level}</span>
           {client.age && <span className="chip">age {client.age}</span>}
-          {latestBW && <span className="chip tabular">{toDisplay(latestBW.kg, unitPref)}{unitLabel(unitPref)}</span>}
+          {latestBW && <span className="chip tabular">{toDisplay(latestBW.lb, unitPref)}{unitLabel(unitPref)}</span>}
           {flags.map((f,i) => <span key={i} className="chip chip-warn"><AlertTriangle size={11}/> {f}</span>)}
         </div>
         <div className="mt-4 text-sm max-w-[580px]" style={{color:"var(--ink-2)"}}>
@@ -2642,8 +2709,8 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
             const att = attendance.find(a => a.workoutId === w.id);
-            const volumeKg = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
-            const volumeDisplay = toDisplay(volumeKg, unitPref);
+            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
+            const volumeDisplay = toDisplay(volumeLb, unitPref);
             return (
               <div key={w.id} className="card p-4 hover-lift flex items-center gap-4">
                 <div className="text-center w-12 flex-shrink-0">
@@ -2656,7 +2723,7 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
                     {w.blocks.length} exercises · {wLogs.length} logged · {att?.status || "no attendance"}
                   </div>
                 </div>
-                {volumeKg > 0 && (
+                {volumeLb > 0 && (
                   <div className="text-right">
                     <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>Volume</div>
                     <div className="display text-lg tabular">{Math.round(volumeDisplay).toLocaleString()}<span className="text-xs" style={{color:"var(--muted)"}}>{unitLabel(unitPref)}</span></div>
@@ -2699,8 +2766,8 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
 
   const addBW = () => {
     if (!newBW) return;
-    const kg = fromDisplay(newBW, unitPref);
-    const bw = [...(client.bodyweight || []), { date: today(), kg }];
+    const lb = fromDisplay(newBW, unitPref);
+    const bw = [...(client.bodyweight || []), { date: today(), lb }];
     onUpdate({ bodyweight: bw });
     setAddingBW(false); setNewBW("");
   };
@@ -2763,8 +2830,8 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
 function BodyweightChart({ data, unitPref = "lb" }) {
   if (!data || data.length < 1) return <div className="card p-5 text-sm" style={{color:"var(--muted)"}}>No bodyweight entries yet.</div>;
   const W = 520, H = 180, PAD = 20;
-  // Convert kg → display unit for rendering
-  const displayVals = data.map(d => toDisplay(d.kg, unitPref));
+  // Convert canonical lb → display unit for rendering
+  const displayVals = data.map(d => toDisplay(d.lb, unitPref));
   const minV = Math.min(...displayVals) - 0.5, maxV = Math.max(...displayVals) + 0.5;
   const scaleX = (i) => data.length === 1 ? W/2 : PAD + (W - 2*PAD) * (i / (data.length - 1));
   const scaleY = (v) => PAD + (H - 2*PAD) * (1 - (v - minV) / (maxV - minV));
@@ -2798,7 +2865,7 @@ function BodyweightChart({ data, unitPref = "lb" }) {
 
 /* -----------------------------  MEASUREMENTS TAB  ----------------------------- */
 
-// Metric definitions: each has a kind ("weight" stored in kg, "length" in cm, "pct" stored as %).
+// Metric definitions: each has a kind ("weight" stored in lb, "length" in inches, "pct" stored as %).
 const METRIC_DEFS = [
   { id: "weight",   label: "Bodyweight",   kind: "weight",  default: "lb" },
   { id: "bodyFat",  label: "Body fat %",   kind: "pct" },
@@ -2816,8 +2883,8 @@ const renderMetric = (entry, unit) => {
   if (entry == null) return "";
   const def = METRIC_DEFS.find(m => m.id === entry.type);
   if (!def) return "";
-  if (def.kind === "weight") return toDisplay(entry.valueKg, unit);
-  if (def.kind === "length") return toDisplayLen(entry.valueCm, unit);
+  if (def.kind === "weight") return toDisplay(entry.valueLb, unit);
+  if (def.kind === "length") return toDisplayLen(entry.valueIn, unit);
   if (def.kind === "pct") return entry.valuePct == null ? "" : Math.round(entry.valuePct * 10) / 10;
   return "";
 };
@@ -2832,8 +2899,8 @@ const metricUnitLabel = (def, unit) => {
 // Convert a display string + unit back to canonical storage object for an entry
 const buildEntry = (def, displayValue, unit) => {
   if (displayValue === "" || displayValue == null) return null;
-  if (def.kind === "weight") return { valueKg: fromDisplay(displayValue, unit) };
-  if (def.kind === "length") return { valueCm: fromDisplayLen(displayValue, unit) };
+  if (def.kind === "weight") return { valueLb: fromDisplay(displayValue, unit) };
+  if (def.kind === "length") return { valueIn: fromDisplayLen(displayValue, unit) };
   if (def.kind === "pct") {
     const n = Number(displayValue);
     return Number.isNaN(n) ? null : { valuePct: Math.round(n * 100) / 100 };
@@ -2852,7 +2919,7 @@ function MeasurementsTab({ client, onUpdate }) {
       id: uid("m"),
       date: b.date,
       type: "weight",
-      valueKg: b.kg,
+      valueLb: b.lb,
     }));
   }, [client.measurements, client.bodyweight]);
 
@@ -3949,7 +4016,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
 function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, canMoveDown }) {
   if (!ex) return null;
   const unit = block.unit || "lb";
-  // Changing the unit toggle only changes the display unit — the canonical kg
+  // Changing the unit toggle only changes the display unit — the canonical lb
   // weight is preserved, so flipping lb ↔ kg shows the same load in the new unit.
   const setUnit = (u) => onUpdate({ unit: u });
   return (
@@ -4331,8 +4398,8 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
         <div className="space-y-2">
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
-            const volumeKg = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
-            const volumeDisplay = toDisplay(volumeKg, unitPref);
+            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
+            const volumeDisplay = toDisplay(volumeLb, unitPref);
             const isOpen = openId === w.id;
             return (
               <div key={w.id} className="card overflow-hidden">
@@ -4348,7 +4415,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                         {w.isSelfDirected ? "Solo session" : "With coach"} · {w.blocks.length} exercises · {wLogs.length} logged
                       </div>
                     </div>
-                    {volumeKg > 0 && (
+                    {volumeLb > 0 && (
                       <div className="text-right hidden sm:block">
                         <div className="display text-lg tabular">{Math.round(volumeDisplay).toLocaleString()}</div>
                         <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>{unitLabel(unitPref)} volume</div>

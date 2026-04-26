@@ -10,7 +10,7 @@
 // implementation; keeping the surface narrow and async makes that swap
 // non-disruptive to App.jsx.
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const KEY_PREFIX = "coach:";
 
