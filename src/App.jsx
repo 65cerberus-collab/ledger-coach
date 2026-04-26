@@ -6,6 +6,7 @@ import {
   MoreHorizontal, Copy, FileText, TrendingUp, ArrowRight, Minus,
   Archive, ArchiveRestore, HelpCircle
 } from "lucide-react";
+import { load, save, SCHEMA_VERSION } from "./storageService";
 
 /* ============================================================
    STYLES — injected once at mount
@@ -124,23 +125,6 @@ const GlobalStyles = () => (
     @keyframes tick { 0% { transform: scale(.6); opacity: .3; } 100% { transform: scale(1); opacity: 1; } }
   `}</style>
 );
-
-/* ============================================================
-   PERSISTENT STORAGE HELPERS
-   ============================================================ */
-const STORAGE = {
-  async load(key, fallback) {
-    try {
-      const res = await window.storage.get(key);
-      return res && res.value ? JSON.parse(res.value) : fallback;
-    } catch { return fallback; }
-  },
-  async save(key, value) {
-    try { await window.storage.set(key, JSON.stringify(value)); } catch {}
-  }
-};
-
-const SCHEMA_VERSION = 6;
 
 const uid = (p = "id") => p + "_" + Math.random().toString(36).slice(2, 9);
 
@@ -536,18 +520,18 @@ export default function CoachApp() {
   // Load
   useEffect(() => {
     (async () => {
-      const version = await STORAGE.load("coach:version", 0);
+      const version = await load("coach:version", 0);
       const stale = version < SCHEMA_VERSION;
 
       const [coachList, curCoach, c, e, w, l, a, legacyUnitPref] = await Promise.all([
-        STORAGE.load("coach:coaches", null),
-        STORAGE.load("coach:currentCoachId", null),
-        STORAGE.load("coach:clients", null),
-        STORAGE.load("coach:exercises", null),
-        STORAGE.load("coach:workouts", null),
-        STORAGE.load("coach:logs", null),
-        STORAGE.load("coach:attendance", null),
-        STORAGE.load("coach:unitPref", null),  // read legacy value for migration only
+        load("coach:coaches", null),
+        load("coach:currentCoachId", null),
+        load("coach:clients", null),
+        load("coach:exercises", null),
+        load("coach:workouts", null),
+        load("coach:logs", null),
+        load("coach:attendance", null),
+        load("coach:unitPref", null),  // read legacy value for migration only
       ]);
 
       // Unit migration seed — for existing blocks/logs that lack a unit field.
@@ -648,21 +632,21 @@ export default function CoachApp() {
       setAllLogs(logsInit);
       setAllAttendance(a || []);
 
-      if (stale) await STORAGE.save("coach:version", SCHEMA_VERSION);
+      if (stale) await save("coach:version", SCHEMA_VERSION);
       // Legacy unitPref key no longer read on future loads — clear it to keep storage tidy.
-      if (legacyUnitPref !== null) await STORAGE.save("coach:unitPref", null);
+      if (legacyUnitPref !== null) await save("coach:unitPref", null);
       setLoaded(true);
     })();
   }, []);
 
   // Save
-  useEffect(() => { if (loaded) STORAGE.save("coach:coaches", coaches); }, [coaches, loaded]);
-  useEffect(() => { if (loaded && currentCoachId) STORAGE.save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
-  useEffect(() => { if (loaded) STORAGE.save("coach:clients", allClients); }, [allClients, loaded]);
-  useEffect(() => { if (loaded) STORAGE.save("coach:exercises", exercises); }, [exercises, loaded]);
-  useEffect(() => { if (loaded) STORAGE.save("coach:workouts", allWorkouts); }, [allWorkouts, loaded]);
-  useEffect(() => { if (loaded) STORAGE.save("coach:logs", allLogs); }, [allLogs, loaded]);
-  useEffect(() => { if (loaded) STORAGE.save("coach:attendance", allAttendance); }, [allAttendance, loaded]);
+  useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
+  useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
+  useEffect(() => { if (loaded) save("coach:clients", allClients); }, [allClients, loaded]);
+  useEffect(() => { if (loaded) save("coach:exercises", exercises); }, [exercises, loaded]);
+  useEffect(() => { if (loaded) save("coach:workouts", allWorkouts); }, [allWorkouts, loaded]);
+  useEffect(() => { if (loaded) save("coach:logs", allLogs); }, [allLogs, loaded]);
+  useEffect(() => { if (loaded) save("coach:attendance", allAttendance); }, [allAttendance, loaded]);
 
   // ── Coach-scoped views — each coach only sees their own ──
   const clients = useMemo(() => allClients.filter(c => c.coachId === currentCoachId), [allClients, currentCoachId]);
