@@ -119,11 +119,13 @@ create table coaches (
   user_id       uuid not null references auth.users(id) on delete cascade unique,
   name          text not null,
   archived      boolean not null default false,
-  archived_at   date,
+  archived_at   timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
-create index coaches_user_id_idx on coaches(user_id);
+-- No explicit index on user_id: the UNIQUE constraint already creates
+-- a btree index. Convention for the whole schema: do not add a
+-- single-column index on a column that already has a UNIQUE constraint.
 
 -- ────────────────────────────────────────────────────────────────
 -- CLIENTS
@@ -138,7 +140,7 @@ create table clients (
   injuries      text[] not null default '{}',
   equipment     text[] not null default '{}',
   archived      boolean not null default false,
-  archived_at   date,
+  archived_at   timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
