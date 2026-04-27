@@ -172,9 +172,10 @@ create table exercises (
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
-create index exercises_coach_id_idx on exercises(coach_id);
 create unique index exercises_global_name_idx on exercises(lower(name)) where coach_id is null;
 create unique index exercises_per_coach_name_idx on exercises(coach_id, lower(name)) where coach_id is not null;
+-- No plain index on coach_id: leftmost-prefix coverage by
+-- exercises_per_coach_name_idx serves any coach_id equality lookup.
 
 -- ────────────────────────────────────────────────────────────────
 -- WORKOUTS

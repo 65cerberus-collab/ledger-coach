@@ -27,9 +27,6 @@ create table public.exercises (
   updated_at        timestamptz not null default now()
 );
 
-create index exercises_coach_id_idx
-  on public.exercises(coach_id);
-
 create unique index exercises_global_name_idx
   on public.exercises(lower(name))
   where coach_id is null;
@@ -37,6 +34,9 @@ create unique index exercises_global_name_idx
 create unique index exercises_per_coach_name_idx
   on public.exercises(coach_id, lower(name))
   where coach_id is not null;
+-- No plain exercises_coach_id_idx: leftmost-prefix coverage by
+-- exercises_per_coach_name_idx (which is partial WHERE coach_id IS NOT
+-- NULL, automatically satisfied by any equality lookup on coach_id).
 
 create trigger exercises_set_updated_at
   before update on public.exercises
