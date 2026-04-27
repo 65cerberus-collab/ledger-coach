@@ -217,6 +217,10 @@ create table workout_blocks (
   updated_at   timestamptz not null default now()
 );
 create index workout_blocks_workout_id_position_idx on workout_blocks(workout_id, position);
+-- TODO (Phase 3+): consider UNIQUE (workout_id, position) once reorder
+-- transactions exist in the sync layer. Deferred to avoid the
+-- constraint clashing with natural write patterns before that code is
+-- written. The UNIQUE would also replace the plain index above.
 
 -- ────────────────────────────────────────────────────────────────
 -- LOGS (one per exercise per workout — single-entry model)
