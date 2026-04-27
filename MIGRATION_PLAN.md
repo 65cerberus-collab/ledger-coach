@@ -119,11 +119,16 @@ create table coaches (
   user_id       uuid not null references auth.users(id) on delete cascade unique,
   name          text not null,
   archived      boolean not null default false,
-  archived_at   date,
+  archived_at   timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
-create index coaches_user_id_idx on coaches(user_id);
+-- No explicit index on user_id: the UNIQUE constraint already creates
+-- a btree index. Convention for the whole schema: do not create any
+-- index whose columns are already covered by an existing UNIQUE
+-- constraint or another index — this includes leftmost-prefix coverage
+-- by a composite index, and identical-column duplication between a
+-- plain index and a UNIQUE index.
 
 -- ────────────────────────────────────────────────────────────────
 -- CLIENTS
@@ -138,7 +143,7 @@ create table clients (
   injuries      text[] not null default '{}',
   equipment     text[] not null default '{}',
   archived      boolean not null default false,
-  archived_at   date,
+  archived_at   timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
@@ -167,9 +172,10 @@ create table exercises (
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
-create index exercises_coach_id_idx on exercises(coach_id);
 create unique index exercises_global_name_idx on exercises(lower(name)) where coach_id is null;
 create unique index exercises_per_coach_name_idx on exercises(coach_id, lower(name)) where coach_id is not null;
+-- No plain index on coach_id: leftmost-prefix coverage by
+-- exercises_per_coach_name_idx serves any coach_id equality lookup.
 
 -- ────────────────────────────────────────────────────────────────
 -- WORKOUTS
@@ -232,7 +238,6 @@ create table logs (
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
 );
-create index logs_workout_exercise_idx on logs(workout_id, exercise_id);
 create index logs_exercise_date_idx on logs(exercise_id, date desc);
 create unique index logs_unique_per_exercise_idx on logs(workout_id, exercise_id);
 
@@ -275,6 +280,35 @@ create table profiles (
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
+
+-- ────────────────────────────────────────────────────────────────
+-- FUTURE HARDENING (TODO)
+-- ────────────────────────────────────────────────────────────────
+-- Constraints and indexes deliberately deferred. Re-evaluate before
+-- each item's listed phase ships.
+--
+-- 1. workout_blocks: UNIQUE (workout_id, position) — Phase 3+
+--    Defer until reorder transactions exist in the sync layer; a
+--    UNIQUE added too early would clash with natural write patterns.
+--    Would also replace the plain workout_blocks_workout_id_position_idx
+--    (UNIQUE creates the implicit btree).
+--
+-- 2. measurements: CHECK enforcing type↔column mapping — Phase 3+
+--    Today nothing prevents (type='waist', value_lb=...) — wrong
+--    column, no error. A CHECK should enforce: type='weight' uses
+--    only value_lb; circumference types use only value_in;
+--    type='bodyFat' uses only value_pct. Defer until app write
+--    patterns are stable.
+--
+-- 3. measurements.unit: CHECK (unit is null or unit in
+--    ('lb','kg','in','cm')) — Phase 3+
+--    Tighten once app write patterns are stable. Other tables with
+--    a `unit` column already constrain it.
+--
+-- 4. attendance: index on (date) or (status, date) — Phase 3+
+--    Today only the implicit unique btree on workout_id exists.
+--    Add once real query profiling shows date-range or status-based
+--    scans are common.
 ```
 
 ### 4.2 Decisions worth noting
