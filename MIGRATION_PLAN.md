@@ -124,8 +124,11 @@ create table coaches (
   updated_at    timestamptz not null default now()
 );
 -- No explicit index on user_id: the UNIQUE constraint already creates
--- a btree index. Convention for the whole schema: do not add a
--- single-column index on a column that already has a UNIQUE constraint.
+-- a btree index. Convention for the whole schema: do not create any
+-- index whose columns are already covered by an existing UNIQUE
+-- constraint or another index — this includes leftmost-prefix coverage
+-- by a composite index, and identical-column duplication between a
+-- plain index and a UNIQUE index.
 
 -- ────────────────────────────────────────────────────────────────
 -- CLIENTS
@@ -234,7 +237,6 @@ create table logs (
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
 );
-create index logs_workout_exercise_idx on logs(workout_id, exercise_id);
 create index logs_exercise_date_idx on logs(exercise_id, date desc);
 create unique index logs_unique_per_exercise_idx on logs(workout_id, exercise_id);
 
