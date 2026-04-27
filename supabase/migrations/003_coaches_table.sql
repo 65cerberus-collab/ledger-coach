@@ -9,12 +9,10 @@ create table public.coaches (
   user_id       uuid not null references auth.users(id) on delete cascade unique,
   name          text not null,
   archived      boolean not null default false,
-  archived_at   date,
+  archived_at   timestamptz,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
-
-create index coaches_user_id_idx on public.coaches(user_id);
 
 create trigger coaches_set_updated_at
   before update on public.coaches
