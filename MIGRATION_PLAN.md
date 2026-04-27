@@ -217,10 +217,6 @@ create table workout_blocks (
   updated_at   timestamptz not null default now()
 );
 create index workout_blocks_workout_id_position_idx on workout_blocks(workout_id, position);
--- TODO (Phase 3+): consider UNIQUE (workout_id, position) once reorder
--- transactions exist in the sync layer. Deferred to avoid the
--- constraint clashing with natural write patterns before that code is
--- written. The UNIQUE would also replace the plain index above.
 
 -- ────────────────────────────────────────────────────────────────
 -- LOGS (one per exercise per workout — single-entry model)
@@ -284,6 +280,35 @@ create table profiles (
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now()
 );
+
+-- ────────────────────────────────────────────────────────────────
+-- FUTURE HARDENING (TODO)
+-- ────────────────────────────────────────────────────────────────
+-- Constraints and indexes deliberately deferred. Re-evaluate before
+-- each item's listed phase ships.
+--
+-- 1. workout_blocks: UNIQUE (workout_id, position) — Phase 3+
+--    Defer until reorder transactions exist in the sync layer; a
+--    UNIQUE added too early would clash with natural write patterns.
+--    Would also replace the plain workout_blocks_workout_id_position_idx
+--    (UNIQUE creates the implicit btree).
+--
+-- 2. measurements: CHECK enforcing type↔column mapping — Phase 3+
+--    Today nothing prevents (type='waist', value_lb=...) — wrong
+--    column, no error. A CHECK should enforce: type='weight' uses
+--    only value_lb; circumference types use only value_in;
+--    type='bodyFat' uses only value_pct. Defer until app write
+--    patterns are stable.
+--
+-- 3. measurements.unit: CHECK (unit is null or unit in
+--    ('lb','kg','in','cm')) — Phase 3+
+--    Tighten once app write patterns are stable. Other tables with
+--    a `unit` column already constrain it.
+--
+-- 4. attendance: index on (date) or (status, date) — Phase 3+
+--    Today only the implicit unique btree on workout_id exists.
+--    Add once real query profiling shows date-range or status-based
+--    scans are common.
 ```
 
 ### 4.2 Decisions worth noting
