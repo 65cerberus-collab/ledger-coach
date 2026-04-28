@@ -18,11 +18,12 @@
 --   authenticate_as(uuid)     — simulate a signed-in coach via JWT GUCs + role.
 --   authenticate_as_anon()    — simulate an unauthenticated request.
 --   clear_authentication()    — drop back to postgres (for privileged setup).
---   create_user(text)         — insert a row in auth.users; returns user_id.
---   create_coach(uuid)        — insert public.coaches; returns coaches.id.
 --   create_client(uuid)       — insert public.clients; returns clients.id.
---   create_workout(uuid)      — insert public.workouts; returns workouts.id.
+--   create_coach(uuid)        — insert public.coaches; returns coaches.id.
 --   create_exercise(uuid)     — insert custom public.exercises; returns exercises.id.
+--   create_profile(uuid)      — insert public.profiles row keyed to auth.users.id; returns user_id.
+--   create_user(text)         — insert a row in auth.users; returns user_id.
+--   create_workout(uuid)      — insert public.workouts; returns workouts.id.
 -- ────────────────────────────────────────────────────────────────
 
 create extension if not exists pgtap with schema extensions;
@@ -152,6 +153,23 @@ $$;
 comment on function tests.create_user(text) is
   'Insert a row into auth.users with sensible test defaults; returns the new user_id. SECURITY DEFINER so it bypasses RLS / privilege restrictions on auth.users.';
 
+create or replace function tests.create_profile(user_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  insert into public.profiles (user_id, schema_version)
+  values (user_id, 7);
+
+  return user_id;
+end;
+$$;
+
+comment on function tests.create_profile(uuid) is
+  'Insert a public.profiles row keyed to the given auth.users.id; returns user_id (which is the profiles PK). Required because no auto-creation trigger exists on auth.users.';
+
 create or replace function tests.create_coach(user_id uuid default null)
 returns uuid
 language plpgsql
@@ -206,8 +224,13 @@ as $$
 declare
   v_workout_id uuid;
 begin
-  insert into public.workouts (coach_id, name, date)
-  values (coach_id, 'Test Workout ' || substr(coach_id::text, 1, 8), current_date)
+  insert into public.workouts (coach_id, name, date, is_self_directed)
+  values (
+    coach_id,
+    'Test Workout ' || substr(coach_id::text, 1, 8),
+    current_date,
+    true
+  )
   returning id into v_workout_id;
 
   return v_workout_id;
@@ -215,7 +238,7 @@ end;
 $$;
 
 comment on function tests.create_workout(uuid) is
-  'Insert a public.workouts row owned by the given coach_id (no client, not a template); returns workouts.id.';
+  'Insert a public.workouts row owned by the given coach_id (no client, not a template, marked self_directed=true so it matches a valid documented workout state per migration 006); returns workouts.id.';
 
 create or replace function tests.create_exercise(coach_id uuid)
 returns uuid
@@ -254,6 +277,7 @@ comment on function tests.create_exercise(uuid) is
 --   create_client
 --   create_coach
 --   create_exercise
+--   create_profile
 --   create_user
 --   create_workout
 -- ────────────────────────────────────────────────────────────────

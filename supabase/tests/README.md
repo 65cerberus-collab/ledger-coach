@@ -26,9 +26,9 @@ WHERE pronamespace = 'tests'::regnamespace
 ORDER BY proname;
 ```
 
-You should see eight rows (`authenticate_as`, `authenticate_as_anon`,
+You should see nine rows (`authenticate_as`, `authenticate_as_anon`,
 `clear_authentication`, `create_client`, `create_coach`,
-`create_exercise`, `create_user`, `create_workout`).
+`create_exercise`, `create_profile`, `create_user`, `create_workout`).
 
 ## Running a test file
 
