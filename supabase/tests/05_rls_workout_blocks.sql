@@ -5,7 +5,7 @@
 --
 -- Ownership pattern: delegated. workout_blocks has no coach_id of its
 -- own; every policy joins through workout_id -> public.workouts and
--- defers ownership to public.is_my_coach(w.coach_id). The tests below
+-- defers ownership to [public.is](http://public.is)_my_coach([w.coach](http://w.coach)_id). The tests below
 -- exercise each policy (SELECT/INSERT/UPDATE/DELETE) from both the
 -- owning coach and a different coach, plus the anonymous role.
 --
@@ -15,10 +15,12 @@
 -- (coach_id IS NULL, is_seed = true) must still be insertable by the
 -- workout's owning coach.
 --
--- For row-count style assertions on UPDATE/DELETE we wrap the mutation
--- in a CTE with RETURNING 1 and count the result, so the assertion is
--- exactly "the policy let N rows through" rather than an indirect
--- before/after value comparison.
+-- Postgres rule: a WITH clause containing a data-modifying statement
+-- must be at the TOP LEVEL of a statement (cannot be nested inside a
+-- scalar subquery or function-call argument). Both the fixture id
+-- captures and the UPDATE/DELETE row-count assertions use the
+--   WITH x AS (DML ... RETURNING ...) SELECT ... FROM x;
+-- pattern accordingly.
 --
 -- Run manually via the Supabase SQL Editor. The whole file is wrapped
 -- in a single BEGIN; ... ROLLBACK; so it leaves no residue.
@@ -31,52 +33,46 @@ select plan(13);
 -- Fixtures (transaction-local GUCs, created as postgres so RLS is bypassed)
 -- ---------------------------------------------------------------------------
 SELECT set_config('test.user_a',     tests.create_user()::text, true);
-SELECT set_config('test.coach_a',    tests.create_coach(current_setting('test.user_a')::uuid)::text, true);
-SELECT set_config('test.workout_a',  tests.create_workout(current_setting('test.coach_a')::uuid)::text, true);
+SELECT set_config('[test.coach](http://test.coach)_a',    tests.create_coach(current_setting('test.user_a')::uuid)::text, true);
+SELECT set_config('test.workout_a',  tests.create_workout(current_setting('[test.coach](http://test.coach)_a')::uuid)::text, true);
 
 SELECT set_config('test.user_b',     tests.create_user()::text, true);
-SELECT set_config('test.coach_b',    tests.create_coach(current_setting('test.user_b')::uuid)::text, true);
-SELECT set_config('test.workout_b',  tests.create_workout(current_setting('test.coach_b')::uuid)::text, true);
+SELECT set_config('[test.coach](http://test.coach)_b',    tests.create_coach(current_setting('test.user_b')::uuid)::text, true);
+SELECT set_config('test.workout_b',  tests.create_workout(current_setting('[test.coach](http://test.coach)_b')::uuid)::text, true);
 
 -- A custom exercise owned by Coach A (workout_blocks RLS doesn't gate on
 -- exercise ownership, so this is just a convenient FK target for setup).
-SELECT set_config('test.exercise_a', tests.create_exercise(current_setting('test.coach_a')::uuid)::text, true);
+SELECT set_config('test.exercise_a', tests.create_exercise(current_setting('[test.coach](http://test.coach)_a')::uuid)::text, true);
 
 -- The block-under-test (B_A): lives on Coach A's workout. Postgres role
--- bypasses RLS so this insert always succeeds. The CTE-with-RETURNING
--- pattern lets set_config capture the new id without psql meta-commands
--- (this file is run via the Supabase SQL Editor, not psql).
-SELECT set_config(
-    'test.block_a',
-    (WITH ins AS (
-         INSERT INTO public.workout_blocks (workout_id, exercise_id, position, notes)
-         VALUES (
-             current_setting('test.workout_a')::uuid,
-             current_setting('test.exercise_a')::uuid,
-             1,
-             'original'
-         )
-         RETURNING id
-     ) SELECT id::text FROM ins),
-    true
-);
+-- bypasses RLS so this insert always succeeds. Top-level WITH so the
+-- INSERT is reachable directly; SELECT set_config(...) FROM ins captures
+-- the new id into a transaction-local GUC.
+WITH ins AS (
+    INSERT INTO public.workout_blocks (workout_id, exercise_id, position, notes)
+    VALUES (
+        current_setting('test.workout_a')::uuid,
+        current_setting('test.exercise_a')::uuid,
+        1,
+        'original'
+    )
+    RETURNING id
+)
+SELECT set_config('test.block_a', id::text, true) FROM ins;
 
 -- A second block on Coach A's workout, used by the DELETE assertion so
 -- B_A stays available for any later checks.
-SELECT set_config(
-    'test.block_a_extra',
-    (WITH ins AS (
-         INSERT INTO public.workout_blocks (workout_id, exercise_id, position, notes)
-         VALUES (
-             current_setting('test.workout_a')::uuid,
-             current_setting('test.exercise_a')::uuid,
-             2,
-             'extra'
-         )
-         RETURNING id
-     ) SELECT id::text FROM ins),
-    true
-);
+WITH ins AS (
+    INSERT INTO public.workout_blocks (workout_id, exercise_id, position, notes)
+    VALUES (
+        current_setting('test.workout_a')::uuid,
+        current_setting('test.exercise_a')::uuid,
+        2,
+        'extra'
+    )
+    RETURNING id
+)
+SELECT set_config('test.block_a_extra', id::text, true) FROM ins;
 
 SELECT tests.clear_authentication();
 
@@ -135,26 +131,28 @@ SELECT tests.clear_authentication();
 -- ---------------------------------------------------------------------------
 SELECT tests.authenticate_as(current_setting('test.user_a')::uuid);
 
+WITH upd AS (
+    UPDATE public.workout_blocks
+       SET notes = 'updated_by_a'
+     WHERE id = current_setting('test.block_a')::uuid
+    RETURNING 1
+)
 SELECT is(
-    (WITH upd AS (
-        UPDATE public.workout_blocks
-           SET notes = 'updated_by_a'
-         WHERE id = current_setting('test.block_a')::uuid
-        RETURNING 1
-     ) SELECT count(*)::int FROM upd),
+    (SELECT count(*)::int FROM upd),
     1,
     'C5: Coach A UPDATE on own block B_A affects 1 row'
 );
 
 SELECT tests.authenticate_as(current_setting('test.user_b')::uuid);
 
+WITH upd AS (
+    UPDATE public.workout_blocks
+       SET notes = 'hacked_by_b'
+     WHERE id = current_setting('test.block_a')::uuid
+    RETURNING 1
+)
 SELECT is(
-    (WITH upd AS (
-        UPDATE public.workout_blocks
-           SET notes = 'hacked_by_b'
-         WHERE id = current_setting('test.block_a')::uuid
-        RETURNING 1
-     ) SELECT count(*)::int FROM upd),
+    (SELECT count(*)::int FROM upd),
     0,
     'C6: Coach B UPDATE on Coach A''s block B_A affects 0 rows (USING filters it out)'
 );
@@ -177,24 +175,26 @@ SELECT tests.clear_authentication();
 -- ---------------------------------------------------------------------------
 SELECT tests.authenticate_as(current_setting('test.user_a')::uuid);
 
+WITH del AS (
+    DELETE FROM public.workout_blocks
+     WHERE id = current_setting('test.block_a_extra')::uuid
+    RETURNING 1
+)
 SELECT is(
-    (WITH del AS (
-        DELETE FROM public.workout_blocks
-         WHERE id = current_setting('test.block_a_extra')::uuid
-        RETURNING 1
-     ) SELECT count(*)::int FROM del),
+    (SELECT count(*)::int FROM del),
     1,
     'D8: Coach A DELETE on own block affects 1 row'
 );
 
 SELECT tests.authenticate_as(current_setting('test.user_b')::uuid);
 
+WITH del AS (
+    DELETE FROM public.workout_blocks
+     WHERE id = current_setting('test.block_a')::uuid
+    RETURNING 1
+)
 SELECT is(
-    (WITH del AS (
-        DELETE FROM public.workout_blocks
-         WHERE id = current_setting('test.block_a')::uuid
-        RETURNING 1
-     ) SELECT count(*)::int FROM del),
+    (SELECT count(*)::int FROM del),
     0,
     'D9: Coach B DELETE on Coach A''s block B_A affects 0 rows'
 );
