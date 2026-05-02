@@ -106,7 +106,8 @@ select throws_ok(
        values (%L::uuid, 'missed', current_date)$f$,
     current_setting('tests.workout_a2')
   ),
-  '42501',
+  '42501'::char(5),
+  null::text,
   'insert: coach_b cannot insert attendance for coach_a''s workout'
 );
 
@@ -118,7 +119,8 @@ select throws_ok(
        values (%L::uuid, 'missed', current_date)$f$,
     current_setting('tests.workout_a2')
   ),
-  '42501',
+  '42501'::char(5),
+  null::text,
   'insert: anon cannot insert attendance'
 );
 
@@ -170,7 +172,8 @@ select throws_ok(
     current_setting('tests.workout_b'),
     current_setting('tests.attendance_a')
   ),
-  '42501',
+  '42501'::char(5),
+  null::text,
   'update: coach_a cannot move attendance to coach_b''s workout'
 );
 
