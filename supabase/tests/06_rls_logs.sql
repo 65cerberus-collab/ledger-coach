@@ -176,8 +176,8 @@ select throws_ok(
     (select v from fx where k = 'workout_b'),
     (select v from fx where k = 'exercise_a')
   ),
-  '42501',
-  null,
+  '42501'::char(5),
+  null::text,
   'Coach A is blocked from INSERTing a log against Coach B''s workout (42501)'
 );
 
@@ -190,8 +190,8 @@ select throws_ok(
     (select v from fx where k = 'workout_a'),
     (select v from fx where k = 'exercise_a')
   ),
-  '42501',
-  null,
+  '42501'::char(5),
+  null::text,
   'Anon role is blocked from INSERTing logs (42501)'
 );
 
@@ -236,8 +236,8 @@ select throws_ok(
     (select v from fx where k = 'workout_b'),
     (select v from fx where k = 'log_a')
   ),
-  '42501',
-  null,
+  '42501'::char(5),
+  null::text,
   'Coach A cannot move their own log to Coach B''s workout (WITH CHECK, 42501)'
 );
 
