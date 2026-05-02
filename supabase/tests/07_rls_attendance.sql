@@ -4,13 +4,13 @@
 -- pgTAP coverage for the four delegated own_coach RLS policies on
 -- public.attendance, defined in supabase/migrations/019_rls_attendance.sql.
 --
--- Ownership is derived through [workouts.coach](http://workouts.coach)_id via the workout_id
+-- Ownership is derived through workouts.coach_id via the workout_id
 -- FK; attendance has no coach_id column. Each policy checks
--- [public.is](http://public.is)_my_coach([w.coach](http://w.coach)_id) against the parent workout.
+-- public.is_my_coach(w.coach_id) against the parent workout.
 --
 -- Setup runs as the postgres role (RLS-bypassing) and uses the
 -- tests.* helper functions plus a raw INSERT for the seed attendance
--- row (no helper exists for attendance per MIGRATION_[PLAN.md](http://PLAN.md)).
+-- row (no helper exists for attendance per MIGRATION_PLAN.md).
 -- IDs are stashed in transaction-local GUCs so they survive role
 -- switches via tests.authenticate_as().
 --
