@@ -4,9 +4,10 @@ import {
   Check, Circle, AlertTriangle, Filter, Trash2, GripVertical, Edit3,
   Activity, Target, LayoutGrid, BookOpen, Clock, ArrowUpRight,
   MoreHorizontal, Copy, FileText, TrendingUp, ArrowRight, Minus,
-  Archive, ArchiveRestore, HelpCircle
+  Archive, ArchiveRestore, HelpCircle, LogOut
 } from "lucide-react";
 import { load, save, SCHEMA_VERSION } from "./storageService";
+import { supabase } from './lib/supabase.js';
 
 /* ============================================================
    STYLES — injected once at mount
@@ -1124,6 +1125,11 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
               <button onClick={() => { fileRef.current?.click(); }}
                 className="w-full flex items-center gap-2 px-3 py-2 pb-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
                 <ArchiveRestore size={14}/> Restore from backup…
+              </button>
+              <div style={{borderTop:"1px solid var(--line-2)"}}/>
+              <button onClick={() => { supabase.auth.signOut(); setOpen(false); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
+                <LogOut size={14}/> Sign out
               </button>
             </div>
           )}
