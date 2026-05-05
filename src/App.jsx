@@ -8,6 +8,8 @@ import {
 } from "lucide-react";
 import { load, save, SCHEMA_VERSION } from "./storageService";
 import { supabase } from './lib/supabase.js';
+import { useSession } from './auth/useSession.js';
+import { useCoaches } from './hooks/useCoaches.js';
 
 /* ============================================================
    STYLES — injected once at mount
@@ -500,6 +502,9 @@ const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefine
    MAIN APP
    ============================================================ */
 export default function CoachApp() {
+  const { session } = useSession();
+  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError } = useCoaches(session);
+
   const [loaded, setLoaded] = useState(false);
   const [coaches, setCoaches] = useState([]);
   const [currentCoachId, setCurrentCoachId] = useState(null);
@@ -692,7 +697,8 @@ export default function CoachApp() {
         });
       }
 
-      setCoaches(coachesInit);
+      // coaches state now derives from Supabase (see effect below). The
+      // localStorage value (coachList) is still read for currentInit fallback.
       setCurrentCoachId(currentInit);
       setAllClients(clientsAfterFlip);
       setExercises(exercisesInit);
@@ -706,6 +712,32 @@ export default function CoachApp() {
       setLoaded(true);
     })();
   }, []);
+
+  // Populate coaches from Supabase. SEED_COACHES is used only as a transitional
+  // fallback when the Supabase fetch has finished and returned no rows. While
+  // the fetch is in flight, coaches stays at whatever it was (typically []).
+  useEffect(() => {
+    if (coachesLoading) return;
+    if (dbCoaches.length > 0) {
+      setCoaches(dbCoaches);
+    } else {
+      setCoaches(SEED_COACHES);
+    }
+  }, [coachesLoading, dbCoaches]);
+
+  // Reconcile currentCoachId against the loaded coaches array. If the persisted
+  // value (from localStorage via setCurrentCoachId initializer earlier) does not
+  // match any coach in the loaded array — for example because the user signed in
+  // as a different auth identity, or because DB-backed coaches replaced seeded
+  // ones — fall back to the first coach. If currentCoachId is already valid, do
+  // nothing (preserves the user's last selection across sessions).
+  useEffect(() => {
+    if (coaches.length === 0) return;
+    const validIds = new Set(coaches.map(c => c.id));
+    if (!currentCoachId || !validIds.has(currentCoachId)) {
+      setCurrentCoachId(coaches[0].id);
+    }
+  }, [coaches, currentCoachId]);
 
   // Save
   useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
@@ -1059,6 +1091,8 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
           {open && (
             <div className="absolute top-full right-0 mt-2 z-40 grow-in min-w-[240px] rounded-xl overflow-hidden"
               style={{background:"#fff", border:"1px solid var(--line)", boxShadow:"0 16px 40px rgba(22,20,15,0.15)"}}>
+              {coaches.length >= 2 && (
+              <>
               <div className="px-3 pt-3 pb-2">
                 <div className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Switch coach</div>
               </div>
@@ -1127,6 +1161,8 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
                 <ArchiveRestore size={14}/> Restore from backup…
               </button>
               <div style={{borderTop:"1px solid var(--line-2)"}}/>
+              </>
+              )}
               <button onClick={() => { supabase.auth.signOut(); setOpen(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
                 <LogOut size={14}/> Sign out
