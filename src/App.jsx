@@ -10,6 +10,7 @@ import { load, save, SCHEMA_VERSION } from "./storageService";
 import { supabase } from './lib/supabase.js';
 import { useSession } from './auth/useSession.js';
 import { useCoaches } from './hooks/useCoaches.js';
+import { useClients } from './hooks/useClients.js';
 
 /* ============================================================
    STYLES — injected once at mount
@@ -749,7 +750,12 @@ export default function CoachApp() {
   useEffect(() => { if (loaded) save("coach:attendance", allAttendance); }, [allAttendance, loaded]);
 
   // ── Coach-scoped views — each coach only sees their own ──
-  const clients = useMemo(() => allClients.filter(c => c.coachId === currentCoachId), [allClients, currentCoachId]);
+  // Clients are read from Supabase; writes still go to localStorage this step.
+  const { clients: dbClients } = useClients(currentCoachId);
+  const clients = useMemo(
+    () => dbClients.map(c => ({ ...c, coachId: c.coach_id, archivedAt: c.archived_at })),
+    [dbClients]
+  );
   const workouts = useMemo(() => allWorkouts.filter(w => w.coachId === currentCoachId), [allWorkouts, currentCoachId]);
   const workoutIdsForCoach = useMemo(() => new Set(workouts.map(w => w.id)), [workouts]);
   const logs = useMemo(() => allLogs.filter(l => workoutIdsForCoach.has(l.workoutId)), [allLogs, workoutIdsForCoach]);
