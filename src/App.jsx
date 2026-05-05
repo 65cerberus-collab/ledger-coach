@@ -725,6 +725,20 @@ export default function CoachApp() {
     }
   }, [coachesLoading, dbCoaches]);
 
+  // Reconcile currentCoachId against the loaded coaches array. If the persisted
+  // value (from localStorage via setCurrentCoachId initializer earlier) does not
+  // match any coach in the loaded array — for example because the user signed in
+  // as a different auth identity, or because DB-backed coaches replaced seeded
+  // ones — fall back to the first coach. If currentCoachId is already valid, do
+  // nothing (preserves the user's last selection across sessions).
+  useEffect(() => {
+    if (coaches.length === 0) return;
+    const validIds = new Set(coaches.map(c => c.id));
+    if (!currentCoachId || !validIds.has(currentCoachId)) {
+      setCurrentCoachId(coaches[0].id);
+    }
+  }, [coaches, currentCoachId]);
+
   // Save
   useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
   useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
