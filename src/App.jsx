@@ -753,7 +753,7 @@ export default function CoachApp() {
 
   // ── Coach-scoped views — each coach only sees their own ──
   // Clients are read from Supabase; writes still go to localStorage this step.
-  const { clients: dbClients } = useClients(currentCoachId);
+  const { clients: dbClients, createClient, updateClient } = useClients(currentCoachId);
   const clients = useMemo(
     () => dbClients.map(c => ({
       ...c,
@@ -937,7 +937,15 @@ export default function CoachApp() {
             clients={clients}
             selectedClientId={selectedClientId}
             onSelectClient={(id) => { setSelectedClientId(id); setView("client"); }}
-            onAddClient={(c) => { setClients([...clients, c]); notify("Client added"); }}
+            onAddClient={async (c) => {
+              try {
+                await createClient(c);
+                notify("Client added");
+              } catch (err) {
+                console.error("createClient failed", err);
+                alert("Failed to add client. Please try again.");
+              }
+            }}
           />
         )}
         <main className="flex-1 overflow-y-auto">
@@ -952,7 +960,14 @@ export default function CoachApp() {
             <ClientDetail
               client={selectedClient}
               workouts={workouts} exercises={exercises} logs={logs} attendance={attendance} unitPref={unitPref}
-              onUpdate={(patch) => setClients(clients.map(c => c.id === selectedClient.id ? {...c, ...patch} : c))}
+              onUpdate={async (patch) => {
+                try {
+                  await updateClient(selectedClient.id, patch);
+                } catch (err) {
+                  console.error("updateClient failed", err);
+                  alert("Failed to save changes. Please try again.");
+                }
+              }}
               onBuild={(ctx) => { setBuilderCtx({clientId: selectedClient.id, ...ctx}); setView("builder"); }}
               onViewAsClient={() => setView("clientView")}
               onApplyTemplate={(template, date, mode) => {
