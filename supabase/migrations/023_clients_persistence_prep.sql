@@ -42,6 +42,7 @@ alter table public.client_notes enable row level security;
 alter table public.client_notes force row level security;
 
 -- SELECT: a coach can read notes only when the parent client is theirs.
+drop policy if exists client_notes_select_own_coach on public.client_notes;
 create policy client_notes_select_own_coach
 on public.client_notes
 for select
@@ -55,6 +56,7 @@ using (
 );
 
 -- INSERT: a coach can record a note only for a client they own.
+drop policy if exists client_notes_insert_own_coach on public.client_notes;
 create policy client_notes_insert_own_coach
 on public.client_notes
 for insert
@@ -70,6 +72,7 @@ with check (
 -- UPDATE: a coach can update only notes under their own clients, and
 -- cannot move a note to a client they do not own (enforced by WITH
 -- CHECK on the post-update client_id).
+drop policy if exists client_notes_update_own_coach on public.client_notes;
 create policy client_notes_update_own_coach
 on public.client_notes
 for update
@@ -90,6 +93,7 @@ with check (
 );
 
 -- DELETE: a coach can delete only notes under their own clients.
+drop policy if exists client_notes_delete_own_coach on public.client_notes;
 create policy client_notes_delete_own_coach
 on public.client_notes
 for delete
