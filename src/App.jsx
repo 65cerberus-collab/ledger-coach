@@ -852,71 +852,6 @@ export default function CoachApp() {
     notify(`Restored ${target.name}`);
   };
 
-  // ── Backup / Restore ─────────────────────────────────────
-  const exportData = () => {
-    const snapshot = {
-      appName: "Ledger",
-      schemaVersion: SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
-      coaches,
-      currentCoachId,
-      clients: allClients,
-      exercises,
-      workouts: allWorkouts,
-      logs: allLogs,
-      attendance: allAttendance,
-    };
-    const json = JSON.stringify(snapshot, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const dateStr = today();
-    a.href = url;
-    a.download = `ledger-backup-${dateStr}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    notify("Backup downloaded");
-  };
-
-  const importData = (file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = JSON.parse(e.target.result);
-        if (!data.appName || data.appName !== "Ledger") {
-          notify("Not a valid Ledger backup file");
-          return;
-        }
-        // Restore everything. For legacy backups (schemaVersion < 5), use the backup's
-        // unitPref to seed unit fields on any block/log that doesn't have one yet.
-        const backupUnit = data.unitPref === "kg" ? "kg" : "lb";
-        if (data.coaches) setCoaches(data.coaches);
-        if (data.currentCoachId) setCurrentCoachId(data.currentCoachId);
-        if (data.clients) setAllClients(data.clients);
-        if (data.exercises) setExercises(data.exercises);
-        if (data.workouts) {
-          setAllWorkouts(data.workouts.map(wo => ({
-            ...wo,
-            blocks: (wo.blocks || []).map(b => ({ unit: backupUnit, ...b }))
-          })));
-        }
-        if (data.logs) {
-          setAllLogs(data.logs.map(lg => ({ unit: backupUnit, ...lg })));
-        }
-        if (data.attendance) setAllAttendance(data.attendance);
-        setSelectedClientId(null);
-        setBuilderCtx(null);
-        setView("dashboard");
-        notify(`Restored from ${shortDate(data.exportedAt?.slice(0,10) || today())}`);
-      } catch (err) {
-        notify("Couldn't read that file");
-      }
-    };
-    reader.readAsText(file);
-  };
-
   if (!loaded) {
     return (
       <div className="h-screen w-full flex items-center justify-center paper-grain" style={{background:"var(--paper)"}}>
@@ -928,7 +863,7 @@ export default function CoachApp() {
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden paper-grain" style={{background:"var(--paper)"}}>
       <GlobalStyles />
-      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} clients={allClients} onSwitch={switchCoach} onAddCoach={addCoach} onArchive={archiveCoach} onRestore={restoreCoach} onExport={exportData} onImport={importData}/>}
+      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} clients={allClients} onSwitch={switchCoach} onAddCoach={addCoach} onArchive={archiveCoach} onRestore={restoreCoach}/>}
       <div className="flex-1 flex overflow-hidden">
         {view !== "builder" && view !== "clientView" && (
           <Sidebar
@@ -1068,16 +1003,14 @@ export default function CoachApp() {
 /* ============================================================
    TOP BAR
    ============================================================ */
-function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchive, onRestore, onExport, onImport }) {
+function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchive, onRestore }) {
   const [time, setTime] = useState(new Date());
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [confirmImport, setConfirmImport] = useState(null); // holds File
   const [archiveTarget, setArchiveTarget] = useState(null); // coach being archived
   const [showArchived, setShowArchived] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const ref = useRef(null);
-  const fileRef = useRef(null);
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => {
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -1175,18 +1108,6 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
                 className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
                 <Plus size={14}/> Add new coach
               </button>
-              <div className="divider mx-2"/>
-              <div className="px-3 pt-2 pb-1">
-                <div className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Backup</div>
-              </div>
-              <button onClick={() => { onExport?.(); setOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
-                <ArrowUpRight size={14}/> Download backup (.json)
-              </button>
-              <button onClick={() => { fileRef.current?.click(); }}
-                className="w-full flex items-center gap-2 px-3 py-2 pb-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
-                <ArchiveRestore size={14}/> Restore from backup…
-              </button>
               <div style={{borderTop:"1px solid var(--line-2)"}}/>
               </>
               )}
@@ -1198,13 +1119,6 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
           )}
         </div>
       </div>
-      <input ref={fileRef} type="file" accept=".json,application/json" style={{display:"none"}}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) setConfirmImport(f);
-          e.target.value = "";
-          setOpen(false);
-        }}/>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)}/>}
       {adding && <AddCoachModal existing={coaches} onClose={() => setAdding(false)} onSave={(c) => { onAddCoach(c); setAdding(false); }}/>}
       {archiveTarget && (
@@ -1218,23 +1132,6 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
             if (ok) setArchiveTarget(null);
           }}
         />
-      )}
-      {confirmImport && (
-        <Modal onClose={() => setConfirmImport(null)} title="Restore from backup?">
-          <div className="space-y-3 text-sm" style={{color:"var(--ink-2)"}}>
-            <p>This will <b>replace everything currently in the app</b> — all coaches, clients, workouts, logs, exercise library, and attendance records — with the contents of:</p>
-            <div className="card p-3 mono text-xs" style={{background:"var(--paper-2)"}}>
-              {confirmImport.name} <span style={{color:"var(--muted)"}}>· {(confirmImport.size / 1024).toFixed(1)} KB</span>
-            </div>
-            <p>If you haven't backed up your current state, cancel and export first.</p>
-          </div>
-          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
-            <button onClick={() => setConfirmImport(null)} className="btn btn-ghost">Cancel</button>
-            <button onClick={() => { onImport?.(confirmImport); setConfirmImport(null); }} className="btn btn-primary">
-              <ArchiveRestore size={14}/> Restore
-            </button>
-          </div>
-        </Modal>
       )}
     </header>
   );
