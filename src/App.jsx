@@ -506,7 +506,7 @@ const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefine
    ============================================================ */
 export default function CoachApp() {
   const { session } = useSession();
-  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError } = useCoaches(session);
+  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError, updateCoach } = useCoaches(session);
 
   const [loaded, setLoaded] = useState(false);
   const [coaches, setCoaches] = useState([]);
@@ -516,6 +516,7 @@ export default function CoachApp() {
   const [allWorkouts, setAllWorkouts] = useState([]); // { id, coachId, name, clientId?, date?, isTemplate, blocks }
   const [allLogs, setAllLogs] = useState([]); // { id, workoutId, exId, setIdx, weight, reps, notes, source, date }
   const [allAttendance, setAllAttendance] = useState([]); // { id, workoutId, status, date }
+  const [archivePending, setArchivePending] = useState(null); // { coach, activeClients } when modal is open
   // unitPref is now a constant — per-block unit overrides live on each block/log.
   // Kept as a named value so existing display code (bodyweight, PRs, etc.) stays unchanged.
   const unitPref = "lb";
@@ -808,41 +809,58 @@ export default function CoachApp() {
     switchCoach(coach.id);
   };
 
-  // Archive a coach. Their active (non-archived) clients are passed in as
-  // resolutions: each entry is { clientId, action: "archive" | "transfer", targetCoachId? }.
-  // If `force === true`, the resolutions array can be empty/incomplete and any
-  // remaining active clients keep their existing coachId (orphaned to the archived coach).
-  const archiveCoach = (coachId, resolutions = [], force = false) => {
-    if (coachId === currentCoachId) {
-      notify("Switch to a different coach before archiving this one");
-      return false;
-    }
+  // Cascade-archive: archiving a coach also archives every one of their active
+  // clients. If the coach has no active clients, archive immediately. Otherwise
+  // open a confirmation modal that lists each affected client. Per-client export
+  // (download training history) ships in Finale-1.5 — placeholder buttons only.
+  const archiveCoach = async (coachId) => {
     const target = coaches.find(c => c.id === coachId);
-    if (!target) return false;
+    if (!target) return;
 
-    // Apply client resolutions
-    const resMap = Object.fromEntries(resolutions.map(r => [r.clientId, r]));
-    const updatedClients = allClients.map(cl => {
-      const r = resMap[cl.id];
-      if (!r) return cl;
-      if (r.action === "archive") return { ...cl, archived: true, archivedAt: today() };
-      if (r.action === "transfer" && r.targetCoachId) return { ...cl, coachId: r.targetCoachId };
-      return cl;
-    });
+    const { data, error } = await supabase
+      .from('clients')
+      .select('id, name')
+      .eq('coach_id', coachId)
+      .eq('archived', false);
+    if (error) {
+      console.error('archiveCoach: failed to load active clients', error);
+      alert(`Couldn't load active clients for ${target.name}: ${error.message ?? error}`);
+      return;
+    }
 
-    // Strict guardrail: if not force, every active client must be resolved
-    if (!force) {
-      const stillActive = updatedClients.filter(cl => cl.coachId === coachId && !cl.archived);
-      if (stillActive.length > 0) {
-        notify(`${stillActive.length} active client${stillActive.length === 1 ? "" : "s"} still assigned`);
-        return false;
+    const activeClients = data ?? [];
+    if (activeClients.length === 0) {
+      await finalizeArchive(target, []);
+      return;
+    }
+    setArchivePending({ coach: target, activeClients });
+  };
+
+  // Bulk-archive the listed clients then archive the coach. Stops on first
+  // failure and surfaces an alert; partial state is left in place (no rollback).
+  const finalizeArchive = async (target, activeClients) => {
+    for (const cl of activeClients) {
+      try {
+        await updateClient(cl.id, { archived: true, archivedAt: today() });
+      } catch (err) {
+        console.error('finalizeArchive: client update failed', cl, err);
+        alert(`Failed to archive client "${cl.name}": ${err?.message ?? err}. Archive aborted; some clients may already be archived.`);
+        return;
       }
     }
-
-    setAllClients(updatedClients);
-    setCoaches(coaches.map(c => c.id === coachId ? { ...c, archived: true, archivedAt: today() } : c));
+    try {
+      await updateCoach(target.id, { archived: true, archivedAt: today() });
+    } catch (err) {
+      console.error('finalizeArchive: coach update failed', target, err);
+      alert(`Failed to archive coach ${target.name}: ${err?.message ?? err}. Their clients have already been archived.`);
+      return;
+    }
+    if (currentCoachId === target.id) {
+      const next = coaches.find(c => c.id !== target.id && !c.archived);
+      setCurrentCoachId(next ? next.id : null);
+    }
     notify(`Archived ${target.name}`);
-    return true;
+    setArchivePending(null);
   };
 
   const restoreCoach = (coachId) => {
@@ -863,7 +881,15 @@ export default function CoachApp() {
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden paper-grain" style={{background:"var(--paper)"}}>
       <GlobalStyles />
-      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} clients={allClients} onSwitch={switchCoach} onAddCoach={addCoach} onArchive={archiveCoach} onRestore={restoreCoach}/>}
+      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} onSwitch={switchCoach} onAddCoach={addCoach} onArchive={archiveCoach} onRestore={restoreCoach}/>}
+      {archivePending && (
+        <ArchiveCoachModal
+          coach={archivePending.coach}
+          activeClients={archivePending.activeClients}
+          onCancel={() => setArchivePending(null)}
+          onConfirm={() => finalizeArchive(archivePending.coach, archivePending.activeClients)}
+        />
+      )}
       <div className="flex-1 flex overflow-hidden">
         {view !== "builder" && view !== "clientView" && (
           <Sidebar
@@ -1003,11 +1029,10 @@ export default function CoachApp() {
 /* ============================================================
    TOP BAR
    ============================================================ */
-function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchive, onRestore }) {
+function TopBar({ coaches, currentCoach, onSwitch, onAddCoach, onArchive, onRestore }) {
   const [time, setTime] = useState(new Date());
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [archiveTarget, setArchiveTarget] = useState(null); // coach being archived
   const [showArchived, setShowArchived] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const ref = useRef(null);
@@ -1070,7 +1095,7 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
                       {c.id === currentCoach?.id && <Check size={13} style={{color:"var(--accent)"}}/>}
                     </button>
                     {c.id !== currentCoach?.id && activeCoaches.length > 1 && (
-                      <button onClick={() => { setArchiveTarget(c); setOpen(false); }}
+                      <button onClick={() => { onArchive?.(c.id); setOpen(false); }}
                         className="p-1 rounded hover-lift opacity-0 group-hover:opacity-100"
                         style={{color:"var(--muted)"}} title="Archive coach">
                         <Archive size={13}/>
@@ -1121,18 +1146,6 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
       </div>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)}/>}
       {adding && <AddCoachModal existing={coaches} onClose={() => setAdding(false)} onSave={(c) => { onAddCoach(c); setAdding(false); }}/>}
-      {archiveTarget && (
-        <ArchiveCoachModal
-          coach={archiveTarget}
-          activeCoaches={activeCoaches.filter(c => c.id !== archiveTarget.id)}
-          activeClients={clients.filter(cl => cl.coachId === archiveTarget.id && !cl.archived)}
-          onClose={() => setArchiveTarget(null)}
-          onConfirm={(resolutions, force) => {
-            const ok = onArchive?.(archiveTarget.id, resolutions, force);
-            if (ok) setArchiveTarget(null);
-          }}
-        />
-      )}
     </header>
   );
 }
@@ -1165,118 +1178,37 @@ function AddCoachModal({ existing, onClose, onSave }) {
 }
 
 /**
- * Archive a coach. Lists every active client and forces the user to choose
- * "Archive client" or "Transfer to <other coach>" for each one. A force-archive
- * escape hatch at the bottom requires typing ARCHIVE to confirm.
+ * Cascade-archive confirmation. Lists every active client that will be archived
+ * alongside the coach. Each client row carries a placeholder "Download training
+ * history" button — disabled until the export feature ships in Finale-1.5.
  */
-function ArchiveCoachModal({ coach, activeCoaches, activeClients, onClose, onConfirm }) {
-  // Per-client resolution state: { clientId: { action, targetCoachId? } }
-  const [resolutions, setResolutions] = useState(() =>
-    Object.fromEntries(activeClients.map(cl => [cl.id, { action: null, targetCoachId: null }]))
-  );
-  const [forceMode, setForceMode] = useState(false);
-  const [forceText, setForceText] = useState("");
-
-  const setRes = (clientId, patch) =>
-    setResolutions({ ...resolutions, [clientId]: { ...resolutions[clientId], ...patch } });
-
-  const allResolved = activeClients.every(cl => {
-    const r = resolutions[cl.id];
-    return r?.action === "archive" || (r?.action === "transfer" && r.targetCoachId);
-  });
-
-  const forceConfirmed = forceText.trim().toUpperCase() === "ARCHIVE";
-
-  const canProceed = activeClients.length === 0 || allResolved || (forceMode && forceConfirmed);
-
-  const handleConfirm = () => {
-    if (!canProceed) return;
-    const list = forceMode && !allResolved
-      ? activeClients
-          .map(cl => ({ clientId: cl.id, ...resolutions[cl.id] }))
-          .filter(r => r.action === "archive" || (r.action === "transfer" && r.targetCoachId))
-      : activeClients.map(cl => ({ clientId: cl.id, ...resolutions[cl.id] }));
-    onConfirm(list, forceMode && !allResolved);
-  };
-
+function ArchiveCoachModal({ coach, activeClients, onCancel, onConfirm }) {
+  const n = activeClients.length;
   return (
-    <Modal onClose={onClose} title={`Archive ${coach.name}?`}>
+    <Modal onClose={onCancel} title={`Archive ${coach.name}?`}>
       <div className="space-y-4">
         <p className="text-sm" style={{color:"var(--ink-2)"}}>
-          Archived coaches don't appear in the main switcher and can't be assigned new clients. You can restore them later.
+          Archiving this coach will also archive {n === 1 ? "this client" : `these ${n} clients`}.
+          Their training history will be unavailable to them until the export feature ships.
         </p>
-
-        {activeClients.length === 0 ? (
-          <div className="card p-3 text-sm" style={{color:"var(--muted)"}}>
-            No active clients to reassign. Ready to archive.
-          </div>
-        ) : (
-          <div>
-            <div className="mono text-[10px] uppercase tracking-widest mb-2" style={{color:"var(--muted)"}}>
-              Resolve {activeClients.length} active client{activeClients.length === 1 ? "" : "s"}
+        <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+          {activeClients.map(cl => (
+            <div key={cl.id} className="card p-3 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium">{cl.name}</span>
+              <button disabled
+                title="Available soon"
+                style={{opacity:0.45, cursor:"not-allowed"}}
+                className="btn btn-ghost text-xs whitespace-nowrap">
+                <FileText size={13}/> Download training history
+              </button>
             </div>
-            <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-              {activeClients.map(cl => {
-                const r = resolutions[cl.id];
-                return (
-                  <div key={cl.id} className="card p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">{cl.name}</span>
-                      <div className="flex gap-1 p-0.5 rounded-lg" style={{background:"var(--paper-2)"}}>
-                        <button onClick={() => setRes(cl.id, { action: "archive", targetCoachId: null })}
-                          className="px-2.5 py-1 rounded text-[11px] font-medium mono uppercase tracking-wide"
-                          style={r?.action === "archive" ? {background:"var(--ink)", color:"var(--paper)"} : {background:"transparent", color:"var(--muted)"}}>
-                          Archive
-                        </button>
-                        <button onClick={() => setRes(cl.id, { action: "transfer" })}
-                          className="px-2.5 py-1 rounded text-[11px] font-medium mono uppercase tracking-wide"
-                          style={r?.action === "transfer" ? {background:"var(--ink)", color:"var(--paper)"} : {background:"transparent", color:"var(--muted)"}}
-                          disabled={activeCoaches.length === 0}>
-                          Transfer
-                        </button>
-                      </div>
-                    </div>
-                    {r?.action === "transfer" && (
-                      activeCoaches.length === 0 ? (
-                        <div className="text-xs" style={{color:"var(--accent)"}}>No other active coaches available. Add one first or archive instead.</div>
-                      ) : (
-                        <select value={r.targetCoachId || ""} onChange={e => setRes(cl.id, { targetCoachId: e.target.value })}
-                          className="field text-sm">
-                          <option value="">Transfer to…</option>
-                          {activeCoaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      )
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {activeClients.length > 0 && !allResolved && (
-          <details className="text-xs" style={{color:"var(--muted)"}}>
-            <summary className="cursor-pointer hover-lift inline-block py-1" onClick={() => setForceMode(!forceMode)}>
-              {forceMode ? "Cancel force archive" : "Force archive without resolving all clients…"}
-            </summary>
-            {forceMode && (
-              <div className="mt-2 p-3 rounded-lg" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
-                <p className="mb-2" style={{color:"var(--ink-2)"}}>
-                  Unresolved clients will remain assigned to <b>{coach.name}</b> after archiving. They won't appear in the active client list and you'll need to handle them later. Type <b>ARCHIVE</b> to confirm.
-                </p>
-                <input value={forceText} onChange={e => setForceText(e.target.value)}
-                  placeholder="ARCHIVE" className="field text-sm tabular"/>
-              </div>
-            )}
-          </details>
-        )}
+          ))}
+        </div>
       </div>
       <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={handleConfirm} disabled={!canProceed}
-          style={!canProceed ? {opacity:0.45, cursor:"not-allowed"} : {}}
-          className="btn btn-primary">
-          <Archive size={14}/> Archive coach
+        <button onClick={onCancel} className="btn btn-ghost">Cancel</button>
+        <button onClick={onConfirm} className="btn btn-primary">
+          <Archive size={14}/> Archive coach & clients
         </button>
       </div>
     </Modal>
