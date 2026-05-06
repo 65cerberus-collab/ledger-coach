@@ -506,7 +506,7 @@ const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefine
    ============================================================ */
 export default function CoachApp() {
   const { session } = useSession();
-  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError, updateCoach } = useCoaches(session);
+  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError, updateCoach, updateLastUsed } = useCoaches(session);
 
   const [loaded, setLoaded] = useState(false);
   const [coaches, setCoaches] = useState([]);
@@ -739,9 +739,14 @@ export default function CoachApp() {
     if (coaches.length === 0) return;
     const validIds = new Set(coaches.map(c => c.id));
     if (!currentCoachId || !validIds.has(currentCoachId)) {
-      setCurrentCoachId(coaches[0].id);
+      const fallbackId = coaches[0].id;
+      setCurrentCoachId(fallbackId);
+      // Persist that this profile is now the most-recently-used. DB-backed
+      // coaches only — seeded fallbacks won't have a real row to update, so
+      // swallow the error silently.
+      updateLastUsed(fallbackId).catch(() => {});
     }
-  }, [coaches, currentCoachId]);
+  }, [coaches, currentCoachId, updateLastUsed]);
 
   // Save
   useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
@@ -803,6 +808,7 @@ export default function CoachApp() {
     setView("dashboard");
     const c = coaches.find(x => x.id === id);
     if (c) notify(`Switched to ${c.name}`);
+    updateLastUsed(id).catch(() => {});
   };
   const addCoach = (coach) => {
     setCoaches([...coaches, coach]);
@@ -858,6 +864,7 @@ export default function CoachApp() {
     if (currentCoachId === target.id) {
       const next = coaches.find(c => c.id !== target.id && !c.archived);
       setCurrentCoachId(next ? next.id : null);
+      if (next) updateLastUsed(next.id).catch(() => {});
     }
     notify(`Archived ${target.name}`);
     setArchivePending(null);
