@@ -11,6 +11,8 @@ import { supabase } from './lib/supabase.js';
 import { useSession } from './auth/useSession.js';
 import { useCoaches } from './hooks/useCoaches.js';
 import { useClients } from './hooks/useClients.js';
+import { useMeasurements } from './hooks/useMeasurements.js';
+import { useClientNotes } from './hooks/useClientNotes.js';
 
 /* ============================================================
    STYLES — injected once at mount
@@ -753,7 +755,13 @@ export default function CoachApp() {
   // Clients are read from Supabase; writes still go to localStorage this step.
   const { clients: dbClients } = useClients(currentCoachId);
   const clients = useMemo(
-    () => dbClients.map(c => ({ ...c, coachId: c.coach_id, archivedAt: c.archived_at })),
+    () => dbClients.map(c => ({
+      ...c,
+      coachId: c.coach_id,
+      archivedAt: c.archived_at,
+      notes: c.notes,
+      since: c.since,
+    })),
     [dbClients]
   );
   const workouts = useMemo(() => allWorkouts.filter(w => w.coachId === currentCoachId), [allWorkouts, currentCoachId]);
@@ -2957,10 +2965,21 @@ const buildEntry = (def, displayValue, unit) => {
 };
 
 function MeasurementsTab({ client, onUpdate }) {
+  const { measurements: dbMeasurements } = useMeasurements(client.id);
   // Migrate legacy bodyweight array on first read into the unified measurements format.
   // We don't write back until the coach actually adds something — keeps the migration lazy.
   const measurements = useMemo(() => {
-    const m = client.measurements || [];
+    const m = (dbMeasurements || []).map(r => ({
+      id: r.id,
+      clientId: r.client_id,
+      date: r.date,
+      type: r.type,
+      valueLb: r.value_lb,
+      valueIn: r.value_in,
+      valuePct: r.value_pct,
+      unit: r.unit,
+      notes: r.notes,
+    }));
     if (m.length > 0) return m;
     const bw = client.bodyweight || [];
     return bw.map(b => ({
@@ -2969,7 +2988,7 @@ function MeasurementsTab({ client, onUpdate }) {
       type: "weight",
       valueLb: b.lb,
     }));
-  }, [client.measurements, client.bodyweight]);
+  }, [dbMeasurements, client.bodyweight]);
 
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -4831,7 +4850,9 @@ function ClientExercisePicker({ exercises, client, onClose, onPick }) {
 }
 
 function ClientNotesTab({ client, onUpdateClient }) {
-  const [entries, setEntries] = useState(client.clientNotes || []);
+  const { clientNotes } = useClientNotes(client.id);
+  const [entries, setEntries] = useState([]);
+  useEffect(() => { setEntries(clientNotes); }, [clientNotes]);
   const [draft, setDraft] = useState("");
 
   const save = () => {

@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 
-export function useClients(coachId) {
-  const [clients, setClients] = useState([]);
+export function useClientNotes(clientId) {
+  const [clientNotes, setClientNotes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!coachId) {
-      setClients([]);
+    if (!clientId) {
+      setClientNotes([]);
       setLoading(false);
       setError(null);
       return;
@@ -19,9 +19,10 @@ export function useClients(coachId) {
     setError(null);
 
     supabase
-      .from('clients')
-      .select('id, coach_id, name, age, level, goals, injuries, equipment, archived, archived_at, notes, since')
-      .eq('coach_id', coachId)
+      .from('client_notes')
+      .select('id, client_id, date, ts, body')
+      .eq('client_id', clientId)
+      .order('ts', { ascending: false })
       .then(({ data, error: queryError }) => {
         if (cancelled) return;
         if (queryError) {
@@ -29,12 +30,12 @@ export function useClients(coachId) {
           setLoading(false);
           return;
         }
-        setClients(data ?? []);
+        setClientNotes(data ?? []);
         setLoading(false);
       });
 
     return () => { cancelled = true; };
-  }, [coachId]);
+  }, [clientId]);
 
-  return { clients, loading, error };
+  return { clientNotes, loading, error };
 }
