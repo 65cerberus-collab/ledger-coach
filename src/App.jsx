@@ -745,7 +745,6 @@ export default function CoachApp() {
   // Save
   useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
   useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
-  useEffect(() => { if (loaded) save("coach:clients", allClients); }, [allClients, loaded]);
   useEffect(() => { if (loaded) save("coach:exercises", exercises); }, [exercises, loaded]);
   useEffect(() => { if (loaded) save("coach:workouts", allWorkouts); }, [allWorkouts, loaded]);
   useEffect(() => { if (loaded) save("coach:logs", allLogs); }, [allLogs, loaded]);
@@ -1052,7 +1051,6 @@ export default function CoachApp() {
                 notify("Session created");
                 return w.id;
               }}
-              onUpdateClient={(patch) => setClients(clients.map(c => c.id === selectedClient.id ? {...c, ...patch} : c))}
             />
           )}
         </main>
@@ -2351,7 +2349,7 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
           <ProgressTab client={client} logs={clientLogs} exercises={exercises} unitPref={unitPref} onUpdate={onUpdate}/>
         )}
         {tab === "measurements" && (
-          <MeasurementsTab client={client} onUpdate={onUpdate}/>
+          <MeasurementsTab client={client}/>
         )}
         {tab === "profile" && (
           <ProfileTab client={client} onUpdate={onUpdate} onViewAsClient={onViewAsClient}/>
@@ -2363,7 +2361,12 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
 
 function ClientHeader({ client, unitPref = "lb" }) {
   const flags = client.injuries || [];
-  const latestBW = client.bodyweight?.slice(-1)[0];
+  const { measurements } = useMeasurements(client.id);
+  const latestBW = useMemo(() => {
+    const weights = measurements.filter(m => m.type === "weight");
+    if (weights.length === 0) return null;
+    return weights.reduce((a, b) => a.date > b.date ? a : b);
+  }, [measurements]);
   return (
     <div className="flex items-start gap-5">
       <div className="w-16 h-16 rounded-2xl flex items-center justify-center display text-xl font-medium flex-shrink-0"
@@ -2376,7 +2379,7 @@ function ClientHeader({ client, unitPref = "lb" }) {
         <div className="flex items-center gap-2 mt-3 flex-wrap">
           <span className="chip">{client.level}</span>
           {client.age && <span className="chip">age {client.age}</span>}
-          {latestBW && <span className="chip tabular">{toDisplay(latestBW.lb, unitPref)}{unitLabel(unitPref)}</span>}
+          {latestBW && <span className="chip tabular">{toDisplay(latestBW.valueLb, unitPref)}{unitLabel(unitPref)}</span>}
           {flags.map((f,i) => <span key={i} className="chip chip-warn"><AlertTriangle size={11}/> {f}</span>)}
         </div>
         <div className="mt-4 text-sm max-w-[580px]" style={{color:"var(--ink-2)"}}>
@@ -2811,6 +2814,15 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
 
 /* -----------------------------  PROGRESS TAB  ----------------------------- */
 function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
+  const { measurements, createMeasurement } = useMeasurements(client.id);
+  const bodyweightSeries = useMemo(
+    () => measurements
+      .filter(m => m.type === "weight")
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(m => ({ date: m.date, lb: m.valueLb })),
+    [measurements]
+  );
   const prs = useMemo(() => {
     const byEx = {};
     logs.forEach(l => {
@@ -2835,12 +2847,16 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
   const [addingBW, setAddingBW] = useState(false);
   const [newBW, setNewBW] = useState("");
 
-  const addBW = () => {
+  const addBW = async () => {
     if (!newBW) return;
     const lb = fromDisplay(newBW, unitPref);
-    const bw = [...(client.bodyweight || []), { date: today(), lb }];
-    onUpdate({ bodyweight: bw });
-    setAddingBW(false); setNewBW("");
+    try {
+      await createMeasurement({ clientId: client.id, date: today(), type: "weight", valueLb: lb });
+      setAddingBW(false); setNewBW("");
+    } catch (err) {
+      console.error("createMeasurement failed", err);
+      alert("Failed to save bodyweight. Please try again.");
+    }
   };
 
   return (
@@ -2883,7 +2899,7 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
             <button onClick={() => setAddingBW(false)} className="btn btn-ghost btn-sm"><X size={12}/></button>
           </div>
         )}
-        <BodyweightChart data={client.bodyweight || []} unitPref={unitPref}/>
+        <BodyweightChart data={bodyweightSeries} unitPref={unitPref}/>
 
         <h2 className="display text-2xl tracking-tight mt-8 mb-4">Notes</h2>
         <div className="card p-4">
@@ -2979,23 +2995,12 @@ const buildEntry = (def, displayValue, unit) => {
   return null;
 };
 
-function MeasurementsTab({ client, onUpdate }) {
-  const { measurements: dbMeasurements } = useMeasurements(client.id);
-  // Migrate legacy bodyweight array on first read into the unified measurements format.
-  // We don't write back until the coach actually adds something — keeps the migration lazy.
+function MeasurementsTab({ client }) {
+  const { measurements: dbMeasurements, createMeasurement, updateMeasurement, deleteMeasurement } = useMeasurements(client.id);
+  // Lazy-migrate legacy bodyweight array on first read into the unified measurements format.
+  // No write-back; once any DB measurements exist this becomes a no-op.
   const measurements = useMemo(() => {
-    const m = (dbMeasurements || []).map(r => ({
-      id: r.id,
-      clientId: r.client_id,
-      date: r.date,
-      type: r.type,
-      valueLb: r.value_lb,
-      valueIn: r.value_in,
-      valuePct: r.value_pct,
-      unit: r.unit,
-      notes: r.notes,
-    }));
-    if (m.length > 0) return m;
+    if (dbMeasurements.length > 0) return dbMeasurements;
     const bw = client.bodyweight || [];
     return bw.map(b => ({
       id: uid("m"),
@@ -3008,38 +3013,51 @@ function MeasurementsTab({ client, onUpdate }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  const saveMeasurements = (next) => {
-    onUpdate({ measurements: next });
-  };
-
-  const addBatch = (batch) => {
+  const addBatch = async (batch) => {
     // batch: { date, entries: { metricId: { value: displayString, unit } } }
-    const newEntries = [];
+    const inputs = [];
     for (const def of METRIC_DEFS) {
       const e = batch.entries[def.id];
       if (!e || e.value === "" || e.value == null) continue;
       const stored = buildEntry(def, e.value, e.unit);
       if (!stored) continue;
-      newEntries.push({
-        id: uid("m"),
+      inputs.push({
+        clientId: client.id,
         date: batch.date,
         type: def.id,
         unit: e.unit, // remember the unit used at entry time
         ...stored,
       });
     }
-    if (newEntries.length === 0) { setAdding(false); return; }
-    saveMeasurements([...measurements, ...newEntries]);
-    setAdding(false);
+    if (inputs.length === 0) { setAdding(false); return; }
+    try {
+      for (const input of inputs) {
+        await createMeasurement(input);
+      }
+      setAdding(false);
+    } catch (err) {
+      console.error("createMeasurement failed", err);
+      alert("Failed to save measurement. Please try again.");
+    }
   };
 
-  const deleteEntry = (id) => {
-    saveMeasurements(measurements.filter(m => m.id !== id));
+  const deleteEntry = async (id) => {
+    try {
+      await deleteMeasurement(id);
+    } catch (err) {
+      console.error("deleteMeasurement failed", err);
+      alert("Failed to delete measurement. Please try again.");
+    }
   };
 
-  const updateEntry = (id, patch) => {
-    saveMeasurements(measurements.map(m => m.id === id ? { ...m, ...patch } : m));
-    setEditingId(null);
+  const updateEntry = async (id, patch) => {
+    try {
+      await updateMeasurement(id, patch);
+      setEditingId(null);
+    } catch (err) {
+      console.error("updateMeasurement failed", err);
+      alert("Failed to update measurement. Please try again.");
+    }
   };
 
   // Group by metric type for charts/lists
@@ -4287,7 +4305,7 @@ function Modal({ onClose, title, children, wide }) {
 /* ============================================================
    CLIENT VIEW — simplified interface for end-clients
    ============================================================ */
-function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected, onUpdateClient }) {
+function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected }) {
   const [tab, setTab] = useState("today"); // today | history | log | notes
   const t = today();
   const nextWorkout = useMemo(() => {
@@ -4324,7 +4342,7 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
           {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")}/>}
           {tab === "history" && <ClientHistoryTab past={past} exercises={exercises} logs={logs} unitPref={unitPref}/>}
           {tab === "log" && <ClientLogTab client={client} exercises={exercises} logs={logs} unitPref={unitPref} onCreateSelfDirected={onCreateSelfDirected} onLog={onLog}/>}
-          {tab === "notes" && <ClientNotesTab client={client} onUpdateClient={onUpdateClient}/>}
+          {tab === "notes" && <ClientNotesTab client={client}/>}
         </div>
       </div>
 
@@ -4864,23 +4882,27 @@ function ClientExercisePicker({ exercises, client, onClose, onPick }) {
   );
 }
 
-function ClientNotesTab({ client, onUpdateClient }) {
-  const { clientNotes } = useClientNotes(client.id);
-  const [entries, setEntries] = useState([]);
-  useEffect(() => { setEntries(clientNotes); }, [clientNotes]);
+function ClientNotesTab({ client }) {
+  const { clientNotes: entries, createNote, deleteNote } = useClientNotes(client.id);
   const [draft, setDraft] = useState("");
 
-  const save = () => {
+  const save = async () => {
     if (!draft.trim()) return;
-    const next = [{ id: uid("note"), date: today(), ts: Date.now(), body: draft.trim() }, ...entries];
-    setEntries(next);
-    onUpdateClient({ clientNotes: next });
-    setDraft("");
+    try {
+      await createNote({ date: today(), ts: Date.now(), body: draft.trim() });
+      setDraft("");
+    } catch (err) {
+      console.error("createNote failed", err);
+      alert("Failed to save note. Please try again.");
+    }
   };
-  const remove = (id) => {
-    const next = entries.filter(e => e.id !== id);
-    setEntries(next);
-    onUpdateClient({ clientNotes: next });
+  const remove = async (id) => {
+    try {
+      await deleteNote(id);
+    } catch (err) {
+      console.error("deleteNote failed", err);
+      alert("Failed to delete note. Please try again.");
+    }
   };
 
   return (
