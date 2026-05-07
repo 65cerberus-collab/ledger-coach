@@ -506,7 +506,7 @@ const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefine
    ============================================================ */
 export default function CoachApp() {
   const { session } = useSession();
-  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError, updateCoach, updateLastUsed } = useCoaches(session);
+  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError, createCoach, updateCoach, updateLastUsed } = useCoaches(session);
 
   const [loaded, setLoaded] = useState(false);
   const [coaches, setCoaches] = useState([]);
@@ -517,6 +517,7 @@ export default function CoachApp() {
   const [allLogs, setAllLogs] = useState([]); // { id, workoutId, exId, setIdx, weight, reps, notes, source, date }
   const [allAttendance, setAllAttendance] = useState([]); // { id, workoutId, status, date }
   const [archivePending, setArchivePending] = useState(null); // { coach, activeClients } when modal is open
+  const [isAddProfileOpen, setIsAddProfileOpen] = useState(false);
   // unitPref is now a constant — per-block unit overrides live on each block/log.
   // Kept as a named value so existing display code (bodyweight, PRs, etc.) stays unchanged.
   const unitPref = "lb";
@@ -810,11 +811,6 @@ export default function CoachApp() {
     if (c) notify(`Switched to ${c.name}`);
     updateLastUsed(id).catch(() => {});
   };
-  const addCoach = (coach) => {
-    setCoaches([...coaches, coach]);
-    switchCoach(coach.id);
-  };
-
   // Cascade-archive: archiving a coach also archives every one of their active
   // clients. If the coach has no active clients, archive immediately. Otherwise
   // open a confirmation modal that lists each affected client. Per-client export
@@ -888,13 +884,25 @@ export default function CoachApp() {
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden paper-grain" style={{background:"var(--paper)"}}>
       <GlobalStyles />
-      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} onSwitch={switchCoach} onAddCoach={addCoach} onArchive={archiveCoach} onRestore={restoreCoach}/>}
+      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} onSwitch={switchCoach} onAddProfile={() => setIsAddProfileOpen(true)} onArchive={archiveCoach} onRestore={restoreCoach}/>}
       {archivePending && (
         <ArchiveCoachModal
           coach={archivePending.coach}
           activeClients={archivePending.activeClients}
           onCancel={() => setArchivePending(null)}
           onConfirm={() => finalizeArchive(archivePending.coach, archivePending.activeClients)}
+        />
+      )}
+      {isAddProfileOpen && (
+        <AddProfileModal
+          existingCoaches={coaches}
+          onClose={() => setIsAddProfileOpen(false)}
+          onCreate={async ({ name }) => {
+            const newCoach = await createCoach({ name });
+            switchCoach(newCoach.id);
+            notify(`Created profile ${newCoach.name}`);
+            setIsAddProfileOpen(false);
+          }}
         />
       )}
       <div className="flex-1 flex overflow-hidden">
@@ -1036,10 +1044,9 @@ export default function CoachApp() {
 /* ============================================================
    TOP BAR
    ============================================================ */
-function TopBar({ coaches, currentCoach, onSwitch, onAddCoach, onArchive, onRestore }) {
+function TopBar({ coaches, currentCoach, onSwitch, onAddProfile, onArchive, onRestore }) {
   const [time, setTime] = useState(new Date());
   const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const ref = useRef(null);
@@ -1083,66 +1090,77 @@ function TopBar({ coaches, currentCoach, onSwitch, onAddCoach, onArchive, onRest
           {open && (
             <div className="absolute top-full right-0 mt-2 z-40 grow-in min-w-[240px] rounded-xl overflow-hidden"
               style={{background:"#fff", border:"1px solid var(--line)", boxShadow:"0 16px 40px rgba(22,20,15,0.15)"}}>
+              {coaches.length === 1 && (
+                <div className="px-3 pt-3 pb-2.5">
+                  <div className="mono text-[10px] uppercase tracking-widest mb-1" style={{color:"var(--muted)"}}>Coach</div>
+                  <div className="text-sm font-medium">{currentCoach?.name || "—"}</div>
+                </div>
+              )}
               {coaches.length >= 2 && (
-              <>
-              <div className="px-3 pt-3 pb-2">
-                <div className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Switch coach</div>
-              </div>
-              <div className="px-1 pb-1">
-                {activeCoaches.map(c => (
-                  <div key={c.id}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left group"
-                    style={c.id === currentCoach?.id ? {background:"var(--paper-2)"} : {}}>
-                    <button onClick={() => { onSwitch(c.id); setOpen(false); }} className="flex items-center gap-2.5 flex-1 text-left hover-lift rounded">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold"
-                        style={{background: c.id === currentCoach?.id ? "var(--ink)" : "var(--paper-2)", color: c.id === currentCoach?.id ? "var(--paper)" : "var(--ink)"}}>
-                        {initials(c.name)}
-                      </div>
-                      <span className="flex-1 text-sm font-medium">{c.name}</span>
-                      {c.id === currentCoach?.id && <Check size={13} style={{color:"var(--accent)"}}/>}
-                    </button>
-                    {c.id !== currentCoach?.id && activeCoaches.length > 1 && (
-                      <button onClick={() => { onArchive?.(c.id); setOpen(false); }}
-                        className="p-1 rounded hover-lift opacity-0 group-hover:opacity-100"
-                        style={{color:"var(--muted)"}} title="Archive coach">
-                        <Archive size={13}/>
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {archivedCoaches.length > 0 && (
                 <>
-                  <div className="divider mx-2"/>
-                  <button onClick={() => setShowArchived(!showArchived)}
-                    className="w-full flex items-center justify-between px-3 py-2 hover-lift text-left text-xs mono uppercase tracking-widest" style={{color:"var(--muted)"}}>
-                    <span>Archived ({archivedCoaches.length})</span>
-                    <ChevronRight size={11} style={{transform: showArchived ? "rotate(90deg)" : "rotate(0)", transition:"transform .15s"}}/>
-                  </button>
-                  {showArchived && (
-                    <div className="px-1 pb-1">
-                      {archivedCoaches.map(c => (
-                        <div key={c.id} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left">
+                  <div className="px-3 pt-3 pb-2">
+                    <div className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Switch coach</div>
+                  </div>
+                  <div className="px-1 pb-1">
+                    {activeCoaches.map(c => (
+                      <div key={c.id}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left group"
+                        style={c.id === currentCoach?.id ? {background:"var(--paper-2)"} : {}}>
+                        <button onClick={() => { onSwitch(c.id); setOpen(false); }} className="flex items-center gap-2.5 flex-1 text-left hover-lift rounded">
                           <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold"
-                            style={{background:"var(--paper-2)", color:"var(--muted)"}}>
+                            style={{background: c.id === currentCoach?.id ? "var(--ink)" : "var(--paper-2)", color: c.id === currentCoach?.id ? "var(--paper)" : "var(--ink)"}}>
                             {initials(c.name)}
                           </div>
-                          <span className="flex-1 text-sm" style={{color:"var(--muted)"}}>{c.name}</span>
-                          <button onClick={() => onRestore?.(c.id)} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>Restore</button>
+                          <span className="flex-1 text-sm font-medium">{c.name}</span>
+                          {c.id === currentCoach?.id && <Check size={13} style={{color:"var(--accent)"}}/>}
+                        </button>
+                        {c.id !== currentCoach?.id && activeCoaches.length > 1 && (
+                          <button onClick={() => { onArchive?.(c.id); setOpen(false); }}
+                            className="p-1 rounded hover-lift opacity-0 group-hover:opacity-100"
+                            style={{color:"var(--muted)"}} title="Archive coach">
+                            <Archive size={13}/>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {archivedCoaches.length > 0 && (
+                    <>
+                      <div className="divider mx-2"/>
+                      <button onClick={() => setShowArchived(!showArchived)}
+                        className="w-full flex items-center justify-between px-3 py-2 hover-lift text-left text-xs mono uppercase tracking-widest" style={{color:"var(--muted)"}}>
+                        <span>Archived ({archivedCoaches.length})</span>
+                        <ChevronRight size={11} style={{transform: showArchived ? "rotate(90deg)" : "rotate(0)", transition:"transform .15s"}}/>
+                      </button>
+                      {showArchived && (
+                        <div className="px-1 pb-1">
+                          {archivedCoaches.map(c => (
+                            <div key={c.id} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left">
+                              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold"
+                                style={{background:"var(--paper-2)", color:"var(--muted)"}}>
+                                {initials(c.name)}
+                              </div>
+                              <span className="flex-1 text-sm" style={{color:"var(--muted)"}}>{c.name}</span>
+                              <button onClick={() => onRestore?.(c.id)} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>Restore</button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
-              <div className="divider mx-2"/>
-              <button onClick={() => { setAdding(true); setOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
-                <Plus size={14}/> Add new coach
-              </button>
-              <div style={{borderTop:"1px solid var(--line-2)"}}/>
-              </>
+              {/* UI-only cap. DB enforcement deferred to Phase 5 (payment gating). */}
+              {coaches.length < 5 && (
+                <>
+                  <div className="divider mx-2"/>
+                  <button onClick={() => { onAddProfile(); setOpen(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
+                    <Plus size={14}/> Add a profile
+                  </button>
+                </>
               )}
+              <div style={{borderTop:"1px solid var(--line-2)"}}/>
               <button onClick={() => { supabase.auth.signOut(); setOpen(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
                 <LogOut size={14}/> Sign out
@@ -1152,33 +1170,83 @@ function TopBar({ coaches, currentCoach, onSwitch, onAddCoach, onArchive, onRest
         </div>
       </div>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)}/>}
-      {adding && <AddCoachModal existing={coaches} onClose={() => setAdding(false)} onSave={(c) => { onAddCoach(c); setAdding(false); }}/>}
     </header>
   );
 }
 
-function AddCoachModal({ existing, onClose, onSave }) {
+function AddProfileModal({ existingCoaches, onClose, onCreate }) {
   const [name, setName] = useState("");
-  const nameTaken = existing.some(c => c.name.toLowerCase() === name.trim().toLowerCase());
-  const canSave = name.trim() && !nameTaken;
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const trimmed = name.trim();
+  const tooLong = trimmed.length > 30;
+  const nameTaken = existingCoaches.some(
+    c => c.name.toLowerCase() === trimmed.toLowerCase()
+  );
+  const canSubmit = trimmed.length > 0 && !tooLong && !submitting;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    if (nameTaken) {
+      setErrorMessage("You already have a profile with that name.");
+      return;
+    }
+    setSubmitting(true);
+    setErrorMessage("");
+    try {
+      await onCreate({ name: trimmed });
+    } catch (err) {
+      const code = err?.code;
+      const message = err?.message ?? "";
+      if (code === "23505" || message.includes("coaches_user_id_name_key")) {
+        setErrorMessage("You already have a profile with that name.");
+      } else {
+        setErrorMessage("Couldn't create profile. Please try again.");
+      }
+      setSubmitting(false);
+    }
+  };
+
+  // Length check is live (drives canSubmit + inline error). Duplicate / server
+  // errors stay post-submit. Length takes display precedence so the user sees
+  // the actionable problem first if both could apply on a paste.
+  const displayedError = tooLong
+    ? "Profile name must be 30 characters or fewer."
+    : errorMessage;
+
   return (
-    <Modal onClose={onClose} title="Add a coach">
+    <Modal onClose={submitting ? () => {} : onClose} title="Add a profile">
       <div className="space-y-3">
         <p className="text-sm" style={{color:"var(--ink-2)"}}>
-          Each coach has their own isolated clients, workouts, and logs. The exercise library is shared across all coaches.
+          Each profile has its own isolated clients, workouts, and logs. The exercise library is shared across all profiles.
         </p>
         <div>
-          <label className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Coach name</label>
-          <input value={name} onChange={e => setName(e.target.value)} className="field mt-1.5" placeholder="e.g. Jordan Blake" autoFocus/>
-          {nameTaken && <div className="text-xs mt-1.5" style={{color:"var(--accent)"}}>A coach with this name already exists.</div>}
+          <label className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Profile name</label>
+          <input
+            value={name}
+            onChange={e => { setName(e.target.value); if (errorMessage) setErrorMessage(""); }}
+            onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}
+            className="field mt-1.5"
+            placeholder="e.g. Jordan Blake"
+            maxLength={30}
+            autoFocus
+            disabled={submitting}
+          />
+          {displayedError && (
+            <div className="text-xs mt-1.5" style={{color:"var(--accent)"}}>{displayedError}</div>
+          )}
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={() => canSave && onSave({ id: "coach_" + uid(""), name: name.trim() })}
-          disabled={!canSave}
-          style={!canSave ? {opacity:0.45, cursor:"not-allowed"} : {}}
-          className="btn btn-primary"><Check size={14}/> Create & switch</button>
+        <button onClick={onClose} disabled={submitting} className="btn btn-ghost">Cancel</button>
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          style={!canSubmit ? {opacity:0.45, cursor:"not-allowed"} : {}}
+          className="btn btn-primary">
+          <Check size={14}/> {submitting ? "Creating…" : "Create & switch"}
+        </button>
       </div>
     </Modal>
   );
