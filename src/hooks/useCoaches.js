@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 
-const SELECT_COLS = 'id, name, user_id, archived, archived_at';
+const SELECT_COLS = 'id, name, user_id, archived, archived_at, last_used_at';
 
-const DB_COLUMNS = new Set(['name', 'archived', 'archived_at']);
+const DB_COLUMNS = new Set(['name', 'archived', 'archived_at', 'last_used_at']);
 
 const CAMEL_TO_SNAKE = {
   archivedAt: 'archived_at',
+  lastUsedAt: 'last_used_at',
 };
 
 function toDbPayload(input) {
@@ -39,6 +40,8 @@ export function useCoaches(session) {
       .from('coaches')
       .select(SELECT_COLS)
       .eq('user_id', session.user.id)
+      .order('last_used_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: true })
       .then(({ data, error: queryError }) => {
         if (cancelled) return;
         if (queryError) {
@@ -67,5 +70,18 @@ export function useCoaches(session) {
     return data;
   };
 
-  return { coaches, loading, error, updateCoach };
+  const updateLastUsed = async (id) => {
+    if (!id) return null;
+    const { data, error: updateError } = await supabase
+      .from('coaches')
+      .update({ last_used_at: new Date().toISOString() })
+      .eq('id', id)
+      .select(SELECT_COLS)
+      .single();
+    if (updateError) throw updateError;
+    setCoaches(prev => prev.map(c => c.id === id ? data : c));
+    return data;
+  };
+
+  return { coaches, loading, error, updateCoach, updateLastUsed };
 }
