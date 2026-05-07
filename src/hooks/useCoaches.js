@@ -70,6 +70,20 @@ export function useCoaches(session) {
     return data;
   };
 
+  const createCoach = async ({ name }) => {
+    if (!session) throw new Error('createCoach: no session');
+    const trimmed = (name ?? '').trim();
+    if (!trimmed) throw new Error('createCoach: name required');
+    const { data, error: insertError } = await supabase
+      .from('coaches')
+      .insert({ name: trimmed, user_id: session.user.id })
+      .select(SELECT_COLS)
+      .single();
+    if (insertError) throw insertError;
+    setCoaches(prev => [data, ...prev]);
+    return data;
+  };
+
   const updateLastUsed = async (id) => {
     if (!id) return null;
     const { data, error: updateError } = await supabase
@@ -83,5 +97,5 @@ export function useCoaches(session) {
     return data;
   };
 
-  return { coaches, loading, error, updateCoach, updateLastUsed };
+  return { coaches, loading, error, createCoach, updateCoach, updateLastUsed };
 }
