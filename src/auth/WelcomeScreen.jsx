@@ -57,14 +57,14 @@ function WelcomeScreen({ onCreate }) {
             className="mono text-[10px] uppercase tracking-widest mb-2"
             style={{ color: 'var(--muted)' }}
           >
-            Ledger Coach
+            LEDGER COACH
           </div>
           <h1 className="display text-3xl font-medium tracking-tight">Welcome</h1>
         </div>
 
         <div className="flex flex-col gap-3 mb-5 text-sm" style={{ color: 'var(--ink-2)' }}>
           <p>
-            You're in. Let's set up your first profile so you can start coaching.
+            You're in. Let's set up your first profile.
           </p>
           <p>
             A profile is your coaching workspace. It owns its own clients, workouts,
