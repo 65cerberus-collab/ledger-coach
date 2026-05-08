@@ -133,7 +133,13 @@ export function useWorkouts(coachId) {
       .from('workouts')
       .insert(workoutRow);
     if (insertWorkoutError) {
-      throw new Error(`Failed to create workout: ${insertWorkoutError.message}`);
+      console.error('[createWorkout] step A failed:', {
+        error: insertWorkoutError,
+        payload: workoutRow,
+        camelInput: camelWorkout,
+      });
+      throw new Error('Failed to create workout: ' +
+        (insertWorkoutError?.message || 'unknown'));
     }
 
     const blocks = camelWorkout.blocks ?? [];
@@ -143,7 +149,13 @@ export function useWorkouts(coachId) {
         .from('workout_blocks')
         .insert(blockRows);
       if (insertBlocksError) {
-        throw new Error(`Workout created but blocks failed to save: ${insertBlocksError.message}`);
+        console.error('[createWorkout] step B failed:', {
+          error: insertBlocksError,
+          payload: blockRows,
+          workoutId,
+        });
+        throw new Error('Workout created but blocks failed to save: ' +
+          (insertBlocksError?.message || 'unknown'));
       }
     }
 

@@ -1020,7 +1020,7 @@ export default function CoachApp() {
                   setView(builderCtx?.clientId ? "client" : "dashboard");
                 } catch (err) {
                   console.error("workout save failed", err);
-                  alert("Failed to save workout. Please try again.");
+                  alert("Failed to save workout: " + err.message);
                 }
               }}
             />
