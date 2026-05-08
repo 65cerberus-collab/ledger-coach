@@ -81,7 +81,18 @@ function AuthGate({ children }) {
             name: pendingName,
             last_used_at: new Date().toISOString(),
           });
-        if (insertErr) throw insertErr;
+        if (insertErr) {
+          // 23505 = unique violation on coaches_user_id_name_key. Means a
+          // parallel bootstrap (another tab, another device, a retry that
+          // raced our own count check) inserted the row between our
+          // existence check above and this insert. The row exists — that's
+          // the desired end state — so treat it as success and fall through
+          // to clear the pending key. Surface any other error.
+          const isRaceLoss =
+            insertErr.code === '23505' ||
+            /coaches_user_id_name_key/i.test(insertErr.message ?? '');
+          if (!isRaceLoss) throw insertErr;
+        }
 
         try { localStorage.removeItem(PENDING_PROFILE_KEY); } catch { /* ignore */ }
         setBootstrapping(false);
