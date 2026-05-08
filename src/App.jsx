@@ -12,6 +12,7 @@ import { useSession } from './auth/useSession.js';
 import { useCoaches } from './hooks/useCoaches.js';
 import { useClients } from './hooks/useClients.js';
 import { useMeasurements } from './hooks/useMeasurements.js';
+import { useWorkouts } from './hooks/useWorkouts.js';
 import { useClientNotes } from './hooks/useClientNotes.js';
 
 /* ============================================================
@@ -575,7 +576,7 @@ export default function CoachApp() {
             coachId: wo.coachId || (wo.clientId ? (clientsInit.find(cl => cl.id === wo.clientId)?.coachId || currentInit) : currentInit),
             blocks: (wo.blocks || []).map(b => ({ weight: null, unit: migrationUnit, ...b }))  // default unit if missing
           }))
-        : seedDemoWorkouts(clientsInit, exercisesInit);
+        : [];
       // Also ensure seeded demo blocks carry a unit (the seed itself doesn't set one)
       const workoutsInit = rawWorkouts.map(wo => ({
         ...wo,
@@ -753,7 +754,6 @@ export default function CoachApp() {
   useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
   useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
   useEffect(() => { if (loaded) save("coach:exercises", exercises); }, [exercises, loaded]);
-  useEffect(() => { if (loaded) save("coach:workouts", allWorkouts); }, [allWorkouts, loaded]);
   useEffect(() => { if (loaded) save("coach:logs", allLogs); }, [allLogs, loaded]);
   useEffect(() => { if (loaded) save("coach:attendance", allAttendance); }, [allAttendance, loaded]);
 
@@ -770,7 +770,7 @@ export default function CoachApp() {
     })),
     [dbClients]
   );
-  const workouts = useMemo(() => allWorkouts.filter(w => w.coachId === currentCoachId), [allWorkouts, currentCoachId]);
+  const { workouts } = useWorkouts(currentCoachId);
   const workoutIdsForCoach = useMemo(() => new Set(workouts.map(w => w.id)), [workouts]);
   const logs = useMemo(() => allLogs.filter(l => workoutIdsForCoach.has(l.workoutId)), [allLogs, workoutIdsForCoach]);
   const attendance = useMemo(() => allAttendance.filter(a => workoutIdsForCoach.has(a.workoutId)), [allAttendance, workoutIdsForCoach]);
@@ -4853,89 +4853,3 @@ function ClientNotesTab({ client }) {
   );
 }
 
-
-function seedDemoWorkouts(clients, exercises) {
-  const byName = (n) => exercises.find(e => e.name === n);
-  const t = today();
-  const workouts = [];
-
-  // Maya — today
-  const maya = clients[0];
-  if (maya) workouts.push({
-    id: uid("w"), name: "Lower — Strength", clientId: maya.id, date: t, isTemplate: false,
-    blocks: [
-      { exId: byName("Back Squat").id, sets: 4, reps: "5", rest: 180, notes: "Work up to 85%" },
-      { exId: byName("Romanian Deadlift").id, sets: 3, reps: "8", rest: 120, notes: "" },
-      { exId: byName("Bulgarian Split Squat").id, sets: 3, reps: "8/leg", rest: 90, notes: "" },
-      { exId: byName("Plank").id, sets: 3, reps: "45s", rest: 45, notes: "" },
-    ]
-  });
-
-  // Daniel — today
-  const daniel = clients[1];
-  if (daniel) workouts.push({
-    id: uid("w"), name: "Mobility + Accessory", clientId: daniel.id, date: t, isTemplate: false,
-    blocks: [
-      { exId: byName("Cat-Cow").id, sets: 2, reps: "8", rest: 0, notes: "Warm up" },
-      { exId: byName("90/90 Hip Switch").id, sets: 2, reps: "6/side", rest: 0, notes: "" },
-      { exId: byName("Goblet Squat").id, sets: 3, reps: "10", rest: 90, notes: "Light" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "12", rest: 75, notes: "" },
-      { exId: byName("Face Pull").id, sets: 3, reps: "15", rest: 45, notes: "" },
-    ]
-  });
-
-  // Jonah — tomorrow
-  const jonah = clients[3];
-  if (jonah) workouts.push({
-    id: uid("w"), name: "Upper — Heavy", clientId: jonah.id, date: addDays(t,1), isTemplate: false,
-    blocks: [
-      { exId: byName("Bench Press").id, sets: 5, reps: "3", rest: 180, notes: "Top set @ 90%" },
-      { exId: byName("Pull-up").id, sets: 4, reps: "6", rest: 120, notes: "Weighted if possible" },
-      { exId: byName("Overhead Press").id, sets: 4, reps: "6", rest: 120, notes: "" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "10", rest: 75, notes: "" },
-    ]
-  });
-
-  // Serafina — in 2 days
-  const serafina = clients[2];
-  if (serafina) workouts.push({
-    id: uid("w"), name: "Prenatal Strength A", clientId: serafina.id, date: addDays(t,2), isTemplate: false,
-    blocks: [
-      { exId: byName("Goblet Squat").id, sets: 3, reps: "10", rest: 90, notes: "Moderate load" },
-      { exId: byName("Hip Thrust").id, sets: 4, reps: "10", rest: 90, notes: "Glute focus" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "12", rest: 75, notes: "" },
-      { exId: byName("Cat-Cow").id, sets: 2, reps: "8", rest: 0, notes: "Cooldown" },
-    ]
-  });
-
-  // Template
-  workouts.push({
-    id: uid("w"), name: "Full-Body Starter (Template)", clientId: null, date: null, isTemplate: true,
-    blocks: [
-      { exId: byName("Goblet Squat").id, sets: 3, reps: "10", rest: 90, notes: "" },
-      { exId: byName("Dumbbell Bench Press").id, sets: 3, reps: "10", rest: 90, notes: "" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "10", rest: 75, notes: "" },
-      { exId: byName("Hip Thrust").id, sets: 3, reps: "12", rest: 75, notes: "" },
-      { exId: byName("Plank").id, sets: 3, reps: "30s", rest: 45, notes: "" },
-    ]
-  });
-
-  // Past workouts for Maya (for progress/history demo)
-  if (maya) {
-    [7, 14, 21, 28].forEach((d,i) => {
-      workouts.push({
-        id: uid("w"), name: "Lower — Strength", clientId: maya.id, date: addDays(t, -d), isTemplate: false,
-        blocks: [
-          { exId: byName("Back Squat").id, sets: 4, reps: "5", rest: 180, notes: "" },
-          { exId: byName("Romanian Deadlift").id, sets: 3, reps: "8", rest: 120, notes: "" },
-        ]
-      });
-    });
-  }
-
-  // Attach coachId — derive from client or default to first seed coach
-  return workouts.map(w => ({
-    ...w,
-    coachId: w.clientId ? (clients.find(c => c.id === w.clientId)?.coachId || "coach_alex") : "coach_alex"
-  }));
-}
