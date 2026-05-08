@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { supabase } from '../lib/supabase.js';
 
 const PROFILE_NAME_MAX = 30;
 const PENDING_PROFILE_KEY = 'pendingProfileName';
@@ -74,7 +75,7 @@ function WelcomeScreen({ onCreate }) {
             Most coaches only ever need one. Some keep more than one to separate
             client books — different gyms, distinct coaching businesses, or
             training and nutrition coaching kept apart. You can add more profiles
-            anytime.
+            or rename this one anytime.
           </p>
         </div>
 
@@ -91,7 +92,6 @@ function WelcomeScreen({ onCreate }) {
               required
               maxLength={PROFILE_NAME_MAX}
               autoComplete="off"
-              autoFocus
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
@@ -137,6 +137,21 @@ function WelcomeScreen({ onCreate }) {
             }}
           >
             {submitting ? 'Creating…' : 'Create profile'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => { supabase.auth.signOut(); }}
+            disabled={submitting}
+            className="text-xs mt-1 underline-offset-2 hover:underline"
+            style={{
+              color: 'var(--muted)',
+              background: 'transparent',
+              border: 'none',
+              cursor: submitting ? 'default' : 'pointer',
+            }}
+          >
+            Signed up under the wrong account? Sign out
           </button>
         </form>
       </div>
