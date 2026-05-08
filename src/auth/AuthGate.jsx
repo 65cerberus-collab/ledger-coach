@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useSession } from './useSession.js';
+import { useCoaches } from '../hooks/useCoaches.js';
 import LoginScreen from './LoginScreen.jsx';
+import WelcomeScreen from './WelcomeScreen.jsx';
 import { supabase } from '../lib/supabase.js';
 
 const PENDING_PROFILE_KEY = 'pendingProfileName';
@@ -27,6 +29,7 @@ function LoadingShell({ label = 'Loading…' }) {
 
 function AuthGate({ children }) {
   const { session, loading } = useSession();
+  const { coaches, loading: coachesLoading, createCoach } = useCoaches(session);
   const [bootstrapping, setBootstrapping] = useState(false);
   const [bootstrapError, setBootstrapError] = useState(null);
   const ranForUserRef = useRef(null);
@@ -74,14 +77,27 @@ function AuthGate({ children }) {
           return;
         }
 
-        const { error: insertErr } = await supabase
-          .from('coaches')
-          .insert({
-            user_id: session.user.id,
-            name: pendingName,
-            last_used_at: new Date().toISOString(),
-          });
-        if (insertErr) throw insertErr;
+        // Route the insert through useCoaches.createCoach so the hook's
+        // local coaches state updates atomically with the row insert. A
+        // raw supabase.insert here would create a row that useCoaches's
+        // own SELECT (running in parallel) might miss, leaving coaches=[]
+        // post-bootstrap and causing WelcomeScreen to flash for a user
+        // who already has a profile. last_used_at is stamped by App.jsx's
+        // currentCoachId reconciliation effect on first dashboard render.
+        try {
+          await createCoach({ name: pendingName });
+        } catch (insertErr) {
+          // 23505 = unique violation on coaches_user_id_name_key. Means a
+          // parallel bootstrap (another tab, another device, a retry that
+          // raced our own existence check) inserted the row between our
+          // check above and this insert. The row exists — that's the
+          // desired end state — so treat it as success and fall through
+          // to clear the pending key. Surface any other error.
+          const isRaceLoss =
+            insertErr?.code === '23505' ||
+            /coaches_user_id_name_key/i.test(insertErr?.message ?? '');
+          if (!isRaceLoss) throw insertErr;
+        }
 
         try { localStorage.removeItem(PENDING_PROFILE_KEY); } catch { /* ignore */ }
         setBootstrapping(false);
@@ -139,6 +155,8 @@ function AuthGate({ children }) {
       </div>
     );
   }
+  if (coachesLoading) return <LoadingShell />;
+  if (coaches.length === 0) return <WelcomeScreen onCreate={createCoach} />;
 
   return children;
 }
