@@ -770,22 +770,12 @@ export default function CoachApp() {
     })),
     [dbClients]
   );
-  const { workouts } = useWorkouts(currentCoachId);
+  const { workouts, createWorkout, updateWorkout, deleteWorkout } = useWorkouts(currentCoachId);
   const workoutIdsForCoach = useMemo(() => new Set(workouts.map(w => w.id)), [workouts]);
   const logs = useMemo(() => allLogs.filter(l => workoutIdsForCoach.has(l.workoutId)), [allLogs, workoutIdsForCoach]);
   const attendance = useMemo(() => allAttendance.filter(a => workoutIdsForCoach.has(a.workoutId)), [allAttendance, workoutIdsForCoach]);
 
   // Scoped setters — mutate only current-coach data, leave other coaches untouched
-  const setClients = (next) => {
-    const resolved = typeof next === "function" ? next(clients) : next;
-    const others = allClients.filter(c => c.coachId !== currentCoachId);
-    setAllClients([...others, ...resolved.map(c => ({ ...c, coachId: c.coachId || currentCoachId }))]);
-  };
-  const setWorkouts = (next) => {
-    const resolved = typeof next === "function" ? next(workouts) : next;
-    const others = allWorkouts.filter(w => w.coachId !== currentCoachId);
-    setAllWorkouts([...others, ...resolved.map(w => ({ ...w, coachId: w.coachId || currentCoachId }))]);
-  };
   const setLogs = (next) => {
     const resolved = typeof next === "function" ? next(logs) : next;
     const others = allLogs.filter(l => !workoutIdsForCoach.has(l.workoutId));
@@ -945,7 +935,7 @@ export default function CoachApp() {
               }}
               onBuild={(ctx) => { setBuilderCtx({clientId: selectedClient.id, ...ctx}); setView("builder"); }}
               onViewAsClient={() => setView("clientView")}
-              onApplyTemplate={(template, date, mode) => {
+              onApplyTemplate={async (template, date, mode) => {
                 const cloned = {
                   ...template,
                   id: uid("w"),
@@ -956,8 +946,13 @@ export default function CoachApp() {
                   blocks: template.blocks.map(b => ({...b})), // deep-copy
                 };
                 if (mode === "quick") {
-                  setWorkouts([...workouts, cloned]);
-                  notify(`"${template.name}" assigned to ${selectedClient.name.split(" ")[0]}`);
+                  try {
+                    await createWorkout(cloned);
+                    notify(`"${template.name}" assigned to ${selectedClient.name.split(" ")[0]}`);
+                  } catch (err) {
+                    console.error("createWorkout failed", err);
+                    alert("Failed to assign template. Please try again.");
+                  }
                 } else {
                   // Edit-first: open builder pre-filled, save adds it
                   setBuilderCtx({ workoutId: cloned.id, clientId: selectedClient.id, date, prefill: cloned });
@@ -981,8 +976,16 @@ export default function CoachApp() {
             <TemplatesView
               workouts={workouts} exercises={exercises} clients={clients}
               onBuild={(ctx) => { setBuilderCtx(ctx); setView("builder"); }}
-              onDelete={(id) => { setWorkouts(workouts.filter(w => w.id !== id)); notify("Template deleted"); }}
-              onAssign={(template, clientId, date) => {
+              onDelete={async (id) => {
+                try {
+                  await deleteWorkout(id);
+                  notify("Template deleted");
+                } catch (err) {
+                  console.error("deleteWorkout failed", err);
+                  alert("Failed to delete template. Please try again.");
+                }
+              }}
+              onAssign={async (template, clientId, date) => {
                 const cloned = {
                   ...template,
                   id: uid("w"),
@@ -992,9 +995,14 @@ export default function CoachApp() {
                   isTemplate: false,
                   blocks: template.blocks.map(b => ({...b})),
                 };
-                setWorkouts([...workouts, cloned]);
-                const c = clients.find(cl => cl.id === clientId);
-                notify(`"${template.name}" assigned to ${c?.name.split(" ")[0] || "client"}`);
+                try {
+                  await createWorkout(cloned);
+                  const c = clients.find(cl => cl.id === clientId);
+                  notify(`"${template.name}" assigned to ${c?.name.split(" ")[0] || "client"}`);
+                } catch (err) {
+                  console.error("createWorkout failed", err);
+                  alert("Failed to assign template. Please try again.");
+                }
               }}
             />
           )}
@@ -1003,12 +1011,17 @@ export default function CoachApp() {
               ctx={builderCtx} exercises={exercises} clients={clients} workouts={workouts} logs={logs}
               notify={notify} unitPref={unitPref}
               onCancel={() => { setView(builderCtx?.clientId ? "client" : "dashboard"); }}
-              onSave={(workout) => {
+              onSave={async (workout) => {
                 const existing = workouts.find(w => w.id === workout.id);
-                if (existing) setWorkouts(workouts.map(w => w.id === workout.id ? workout : w));
-                else setWorkouts([...workouts, workout]);
-                notify(workout.isTemplate ? "Template saved" : "Workout saved");
-                setView(builderCtx?.clientId ? "client" : "dashboard");
+                try {
+                  if (existing) await updateWorkout(workout.id, workout);
+                  else await createWorkout(workout);
+                  notify(workout.isTemplate ? "Template saved" : "Workout saved");
+                  setView(builderCtx?.clientId ? "client" : "dashboard");
+                } catch (err) {
+                  console.error("workout save failed", err);
+                  alert("Failed to save workout. Please try again.");
+                }
               }}
             />
           )}
@@ -1021,11 +1034,17 @@ export default function CoachApp() {
               unitPref={unitPref}
               onExit={() => setView("client")}
               onLog={(log) => { setLogs([...logs, {...log, id: uid("log"), source: "client"}]); notify("Logged"); }}
-              onCreateSelfDirected={(workout) => {
-                const w = { ...workout, id: uid("w"), coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
-                setWorkouts([...workouts, w]);
-                notify("Session created");
-                return w.id;
+              onCreateSelfDirected={async (workout) => {
+                const w = { ...workout, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
+                try {
+                  const created = await createWorkout(w);
+                  notify("Session created");
+                  return created.id;
+                } catch (err) {
+                  console.error("createWorkout failed", err);
+                  alert("Failed to create session. Please try again.");
+                  return null;
+                }
               }}
             />
           )}

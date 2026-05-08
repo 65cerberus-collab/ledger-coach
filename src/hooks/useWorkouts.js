@@ -120,5 +120,91 @@ export function useWorkouts(coachId) {
     return () => { cancelled = true; };
   }, [coachId]);
 
-  return { workouts, loading, error };
+  const createWorkout = async (camelWorkout) => {
+    const workoutId = crypto.randomUUID();
+
+    const workoutRow = toWorkoutRow({
+      ...camelWorkout,
+      id: workoutId,
+      coachId: camelWorkout.coachId ?? coachId,
+    });
+
+    const { error: insertWorkoutError } = await supabase
+      .from('workouts')
+      .insert(workoutRow);
+    if (insertWorkoutError) {
+      throw new Error(`Failed to create workout: ${insertWorkoutError.message}`);
+    }
+
+    const blocks = camelWorkout.blocks ?? [];
+    if (blocks.length > 0) {
+      const blockRows = blocks.map((b, i) => toBlockRow(b, workoutId, i));
+      const { error: insertBlocksError } = await supabase
+        .from('workout_blocks')
+        .insert(blockRows);
+      if (insertBlocksError) {
+        throw new Error(`Workout created but blocks failed to save: ${insertBlocksError.message}`);
+      }
+    }
+
+    const created = {
+      ...camelWorkout,
+      id: workoutId,
+      coachId: camelWorkout.coachId ?? coachId,
+      blocks,
+    };
+    setWorkouts(prev => [...prev, created]);
+    return created;
+  };
+
+  const updateWorkout = async (id, camelWorkout) => {
+    const fullRow = toWorkoutRow(camelWorkout);
+    const { id: _id, coach_id: _coach, ...patch } = fullRow;
+
+    const { error: updateError } = await supabase
+      .from('workouts')
+      .update(patch)
+      .eq('id', id)
+      .eq('coach_id', coachId);
+    if (updateError) {
+      throw new Error(`Failed to update workout: ${updateError.message}`);
+    }
+
+    const { error: deleteBlocksError } = await supabase
+      .from('workout_blocks')
+      .delete()
+      .eq('workout_id', id);
+    if (deleteBlocksError) {
+      throw new Error(`Failed to clear workout blocks: ${deleteBlocksError.message}`);
+    }
+
+    const blocks = camelWorkout.blocks ?? [];
+    if (blocks.length > 0) {
+      const blockRows = blocks.map((b, i) => toBlockRow(b, id, i));
+      const { error: insertBlocksError } = await supabase
+        .from('workout_blocks')
+        .insert(blockRows);
+      if (insertBlocksError) {
+        throw new Error(`Failed to save workout blocks: ${insertBlocksError.message}`);
+      }
+    }
+
+    const updated = { ...camelWorkout, id, coachId: coachId };
+    setWorkouts(prev => prev.map(w => w.id === id ? updated : w));
+    return updated;
+  };
+
+  const deleteWorkout = async (id) => {
+    const { error: deleteError } = await supabase
+      .from('workouts')
+      .delete()
+      .eq('id', id)
+      .eq('coach_id', coachId);
+    if (deleteError) {
+      throw new Error(`Failed to delete workout: ${deleteError.message}`);
+    }
+    setWorkouts(prev => prev.filter(w => w.id !== id));
+  };
+
+  return { workouts, loading, error, createWorkout, updateWorkout, deleteWorkout };
 }
