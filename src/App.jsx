@@ -14,6 +14,7 @@ import { useClients } from './hooks/useClients.js';
 import { useMeasurements } from './hooks/useMeasurements.js';
 import { useWorkouts } from './hooks/useWorkouts.js';
 import { useClientNotes } from './hooks/useClientNotes.js';
+import { useExercises } from './hooks/useExercises.js';
 
 /* ============================================================
    STYLES — injected once at mount
@@ -169,277 +170,6 @@ const fromDisplayLen = (value, unit) => {
 const lenLabel = (unit) => unit === "in" ? "in" : "cm";
 
 /* ============================================================
-   SEED DATA
-   ============================================================ */
-const E = (name, movement, muscles, equipment, difficulty, tags, contraindications, defSets, defReps, defRest, notes = "") =>
-  ({ id: uid("ex"), name, movement, muscles, equipment, difficulty, tags, contraindications, defSets, defReps, defRest, notes });
-
-const SEED_EXERCISES = [
-  // ── SQUAT ────────────────────────────────────────────────
-  E("Back Squat", "squat", ["quads","glutes"], ["barbell","rack"], "intermediate", ["compound","lower"], ["knee injury"], 4, "5", 180, "Brace, depth to parallel."),
-  E("Front Squat", "squat", ["quads","core"], ["barbell","rack"], "advanced", ["compound","lower"], ["wrist injury","knee injury"], 4, "5", 180, "Elbows up, upright torso."),
-  E("Goblet Squat", "squat", ["quads","glutes"], ["dumbbell","kettlebell"], "beginner", ["compound","lower","beginner-friendly"], [], 3, "10", 90, "Elbows inside knees."),
-  E("Box Squat", "squat", ["quads","glutes"], ["barbell","rack"], "intermediate", ["compound","lower"], [], 4, "5", 180, "Sit back to box, no collapse."),
-  E("Pause Squat", "squat", ["quads","glutes"], ["barbell","rack"], "advanced", ["compound","lower"], ["knee injury"], 4, "4", 210, "3-count pause at bottom."),
-  E("Safety Bar Squat", "squat", ["quads","glutes","upper-back"], ["safety-bar","rack"], "intermediate", ["compound","lower"], [], 4, "6", 180, "Shoulder-friendly alternative."),
-  E("Zercher Squat", "squat", ["quads","glutes","core"], ["barbell"], "advanced", ["compound","lower"], ["elbow injury"], 3, "6", 150, "Bar in crooks of elbows."),
-  E("Hack Squat (Machine)", "squat", ["quads"], ["machine"], "beginner", ["lower"], [], 3, "10", 90),
-  E("Leg Press", "squat", ["quads","glutes"], ["machine"], "beginner", ["lower","beginner-friendly"], [], 3, "12", 90),
-  E("Walking Lunge", "squat", ["quads","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], ["knee injury"], 3, "12/leg", 75),
-  E("Reverse Lunge", "squat", ["quads","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], [], 3, "10/leg", 75, "Knee-friendly lunge variant."),
-  E("Lateral Lunge", "squat", ["adductors","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], [], 3, "8/leg", 60),
-  E("Curtsy Lunge", "squat", ["glutes","adductors"], ["dumbbell","bodyweight"], "intermediate", ["unilateral","lower"], ["knee injury"], 3, "10/leg", 60),
-  E("Bulgarian Split Squat", "squat", ["quads","glutes"], ["dumbbell","bench"], "intermediate", ["unilateral","lower"], ["knee injury"], 3, "8/leg", 90),
-  E("Split Squat", "squat", ["quads","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], [], 3, "10/leg", 75),
-  E("Step-up", "squat", ["quads","glutes"], ["dumbbell","bench"], "beginner", ["unilateral","lower"], [], 3, "10/leg", 60),
-  E("Pistol Squat", "squat", ["quads","glutes"], ["bodyweight"], "advanced", ["unilateral","bodyweight"], ["knee injury"], 3, "5/leg", 90),
-  E("Cossack Squat", "squat", ["quads","adductors"], ["bodyweight","kettlebell"], "intermediate", ["unilateral","mobility"], [], 3, "6/side", 60),
-  E("Wall Sit", "squat", ["quads"], ["bodyweight"], "beginner", ["isometric","lower"], ["knee injury"], 3, "45s", 60),
-  E("Jump Squat", "squat", ["quads","glutes"], ["bodyweight"], "intermediate", ["power","lower"], ["knee injury"], 3, "8", 90),
-
-  // ── HINGE ────────────────────────────────────────────────
-  E("Conventional Deadlift", "hinge", ["hamstrings","glutes","back"], ["barbell"], "advanced", ["compound","posterior"], ["low back injury","disc issue"], 4, "5", 180),
-  E("Sumo Deadlift", "hinge", ["glutes","quads","back"], ["barbell"], "advanced", ["compound","posterior"], ["low back injury","hip injury"], 4, "5", 180),
-  E("Romanian Deadlift", "hinge", ["hamstrings","glutes"], ["barbell","dumbbell"], "intermediate", ["posterior","hinge"], ["low back injury"], 3, "8", 120),
-  E("Stiff-Leg Deadlift", "hinge", ["hamstrings"], ["barbell","dumbbell"], "intermediate", ["posterior"], ["low back injury"], 3, "8", 120),
-  E("Single-Leg RDL", "hinge", ["hamstrings","glutes"], ["dumbbell","kettlebell"], "intermediate", ["unilateral","posterior"], [], 3, "8/leg", 75),
-  E("Trap Bar Deadlift", "hinge", ["hamstrings","glutes","quads"], ["trap-bar"], "intermediate", ["compound","posterior","beginner-friendly"], [], 4, "6", 150, "Easier on lower back."),
-  E("Deficit Deadlift", "hinge", ["hamstrings","glutes"], ["barbell"], "advanced", ["posterior"], ["low back injury"], 3, "5", 180),
-  E("Rack Pull", "hinge", ["back","glutes"], ["barbell","rack"], "intermediate", ["posterior","accessory"], [], 3, "6", 150),
-  E("Good Morning", "hinge", ["hamstrings","low-back"], ["barbell"], "intermediate", ["posterior"], ["low back injury"], 3, "8", 120),
-  E("Back Extension", "hinge", ["hamstrings","glutes","low-back"], ["ghd"], "beginner", ["posterior","accessory"], [], 3, "12", 60),
-  E("Reverse Hyper", "hinge", ["glutes","hamstrings","low-back"], ["reverse-hyper"], "beginner", ["posterior","accessory"], [], 3, "12", 60),
-  E("Hip Thrust", "hinge", ["glutes","hamstrings"], ["barbell","bench"], "beginner", ["glute","posterior"], [], 4, "10", 90),
-  E("Barbell Glute Bridge", "hinge", ["glutes","hamstrings"], ["barbell"], "beginner", ["glute","posterior"], [], 3, "10", 75),
-  E("Single-Leg Hip Thrust", "hinge", ["glutes"], ["bench","bodyweight"], "intermediate", ["unilateral","glute"], [], 3, "10/leg", 60),
-  E("Kettlebell Swing", "hinge", ["glutes","hamstrings","back"], ["kettlebell"], "intermediate", ["power","conditioning"], ["low back injury"], 4, "15", 60),
-  E("Kettlebell Clean", "hinge", ["full body"], ["kettlebell"], "advanced", ["power","conditioning"], ["low back injury"], 4, "6/side", 90),
-  E("Nordic Curl", "hinge", ["hamstrings"], ["bodyweight"], "advanced", ["posterior","isolation"], ["hamstring injury"], 3, "6", 90, "Eccentric-only to start — lower slowly, use hands to push up."),
-  E("B-Stance RDL", "hinge", ["hamstrings","glutes"], ["dumbbell","kettlebell","barbell"], "intermediate", ["unilateral","posterior"], ["low back injury"], 3, "8/leg", 75, "Back foot kickstand, ~70% load on front leg."),
-  E("B-Stance Hip Thrust", "hinge", ["glutes"], ["barbell","bench"], "intermediate", ["unilateral","glute","posterior"], [], 3, "10/leg", 75),
-  E("Banded Lateral Walk", "hinge", ["glutes"], ["band"], "beginner", ["glute","warmup","isolation"], [], 3, "15/side", 30),
-  E("Clamshell", "hinge", ["glutes"], ["band","bodyweight"], "beginner", ["glute","warmup","prenatal-safe"], [], 3, "15/side", 30),
-  E("Hip Airplane", "hinge", ["glutes","hips"], ["bodyweight"], "intermediate", ["unilateral","stability","glute"], [], 3, "6/side", 45),
-  E("Power Clean", "hinge", ["full body"], ["barbell"], "advanced", ["power","compound","posterior"], ["low back injury","wrist injury"], 5, "3", 180, "Triple extension, catch in quarter squat."),
-  E("Hang Clean", "hinge", ["full body"], ["barbell"], "advanced", ["power","compound"], ["low back injury"], 5, "3", 180, "From mid-thigh."),
-
-  // ── PUSH: HORIZONTAL ─────────────────────────────────────
-  E("Bench Press", "push", ["chest","triceps","shoulders"], ["barbell","bench"], "intermediate", ["compound","upper"], ["shoulder injury"], 4, "6", 150),
-  E("Close-Grip Bench Press", "push", ["triceps","chest"], ["barbell","bench"], "intermediate", ["compound","upper"], ["elbow injury"], 4, "8", 120, "Shoulder-width grip."),
-  E("Incline Bench Press", "push", ["upper-chest","shoulders"], ["barbell","bench"], "intermediate", ["compound","upper"], ["shoulder injury"], 4, "8", 120),
-  E("Decline Bench Press", "push", ["lower-chest","triceps"], ["barbell","bench"], "intermediate", ["upper"], [], 3, "8", 120),
-  E("Dumbbell Bench Press", "push", ["chest","triceps"], ["dumbbell","bench"], "beginner", ["upper"], [], 3, "10", 90),
-  E("Dumbbell Incline Press", "push", ["upper-chest"], ["dumbbell","bench"], "beginner", ["upper"], ["shoulder injury"], 3, "10", 90),
-  E("Floor Press", "push", ["chest","triceps"], ["barbell","dumbbell"], "intermediate", ["upper"], [], 3, "8", 120, "Shoulder-friendly press."),
-  E("Push-up", "push", ["chest","triceps","core"], ["bodyweight"], "beginner", ["bodyweight","upper"], ["wrist injury"], 3, "10", 60),
-  E("Incline Push-up", "push", ["chest","triceps"], ["bodyweight","bench"], "beginner", ["bodyweight","upper","beginner-friendly"], [], 3, "12", 60),
-  E("Decline Push-up", "push", ["upper-chest"], ["bodyweight","bench"], "intermediate", ["bodyweight","upper"], ["shoulder injury"], 3, "10", 75),
-  E("Diamond Push-up", "push", ["triceps","chest"], ["bodyweight"], "intermediate", ["bodyweight","upper"], ["wrist injury"], 3, "8", 60),
-  E("Archer Push-up", "push", ["chest","triceps"], ["bodyweight"], "advanced", ["bodyweight","unilateral"], ["shoulder injury"], 3, "5/side", 75),
-  E("Dumbbell Fly", "push", ["chest"], ["dumbbell","bench"], "beginner", ["isolation","upper"], ["shoulder injury"], 3, "12", 60),
-  E("Cable Chest Fly", "push", ["chest"], ["cable"], "beginner", ["isolation","upper"], ["shoulder injury"], 3, "12", 60),
-  E("Pec Deck", "push", ["chest"], ["machine"], "beginner", ["isolation","upper"], ["shoulder injury"], 3, "12", 60),
-  E("Landmine Press", "push", ["chest","shoulders"], ["barbell"], "beginner", ["upper","shoulder-friendly"], [], 3, "10", 90, "Great for shoulder rehab."),
-  E("Dips", "push", ["chest","triceps"], ["dip-station","bodyweight"], "advanced", ["bodyweight","upper"], ["shoulder injury"], 3, "8", 120),
-
-  // ── PUSH: VERTICAL ───────────────────────────────────────
-  E("Overhead Press", "push", ["shoulders","triceps"], ["barbell"], "intermediate", ["upper","compound"], ["shoulder injury"], 4, "6", 120),
-  E("Push Press", "push", ["shoulders","triceps","legs"], ["barbell"], "intermediate", ["power","upper"], ["shoulder injury"], 4, "5", 150),
-  E("Z Press", "push", ["shoulders","core"], ["barbell","dumbbell"], "advanced", ["upper","core"], ["low back injury"], 3, "6", 120),
-  E("Seated DB Press", "push", ["shoulders"], ["dumbbell","bench"], "beginner", ["upper"], ["shoulder injury"], 3, "10", 90),
-  E("Arnold Press", "push", ["shoulders"], ["dumbbell"], "intermediate", ["upper"], ["shoulder injury"], 3, "10", 75),
-  E("Single-Arm DB Press", "push", ["shoulders","core"], ["dumbbell"], "intermediate", ["upper","unilateral"], ["shoulder injury"], 3, "8/side", 75),
-  E("Pike Push-up", "push", ["shoulders","triceps"], ["bodyweight"], "intermediate", ["bodyweight","upper"], ["shoulder injury","wrist injury"], 3, "8", 75),
-  E("Handstand Push-up", "push", ["shoulders","triceps"], ["bodyweight"], "advanced", ["bodyweight","upper"], ["shoulder injury","wrist injury"], 3, "5", 120),
-  E("Lateral Raise", "push", ["shoulders"], ["dumbbell","cable"], "beginner", ["isolation","upper"], [], 3, "12", 45),
-  E("Front Raise", "push", ["shoulders"], ["dumbbell","plate"], "beginner", ["isolation","upper"], [], 3, "10", 45),
-  E("Cable Lateral Raise", "push", ["shoulders"], ["cable"], "beginner", ["isolation","upper"], [], 3, "12", 45),
-  E("Single-Arm Cable Lateral Raise", "push", ["shoulders"], ["cable"], "beginner", ["isolation","upper","unilateral"], [], 3, "12/side", 45),
-  E("Single-Arm Landmine Press", "push", ["shoulders","core"], ["barbell"], "intermediate", ["upper","unilateral","shoulder-friendly"], [], 3, "8/side", 75),
-  E("Push Jerk", "push", ["shoulders","triceps","legs"], ["barbell"], "advanced", ["power","upper","compound"], ["shoulder injury","low back injury"], 4, "3", 180, "Dip-drive-punch under."),
-  E("Clean & Press", "push", ["full body"], ["barbell","kettlebell"], "advanced", ["power","compound","upper"], ["shoulder injury","low back injury"], 4, "5", 150),
-
-  // ── PULL: HORIZONTAL ─────────────────────────────────────
-  E("Barbell Row", "pull", ["back","biceps"], ["barbell"], "intermediate", ["compound","upper"], ["low back injury"], 4, "8", 120),
-  E("Pendlay Row", "pull", ["back","biceps"], ["barbell"], "advanced", ["compound","upper"], ["low back injury"], 4, "5", 150, "Dead-stop from floor."),
-  E("Dumbbell Row", "pull", ["back","biceps"], ["dumbbell","bench"], "beginner", ["upper"], [], 3, "10", 75),
-  E("Chest-Supported Row", "pull", ["back"], ["dumbbell","bench"], "beginner", ["upper","beginner-friendly"], [], 3, "10", 75, "Low-back friendly."),
-  E("Seal Row", "pull", ["back"], ["barbell","bench"], "intermediate", ["upper"], [], 3, "8", 90),
-  E("T-Bar Row", "pull", ["back"], ["barbell","t-bar"], "intermediate", ["compound","upper"], ["low back injury"], 3, "8", 90),
-  E("Meadows Row", "pull", ["lats","rear-delts"], ["barbell"], "advanced", ["upper","unilateral"], [], 3, "8/side", 75),
-  E("Cable Row", "pull", ["back"], ["cable"], "beginner", ["upper","beginner-friendly"], [], 3, "10", 75),
-  E("Inverted Row", "pull", ["back","biceps"], ["bar","bodyweight"], "beginner", ["bodyweight","upper"], [], 3, "10", 75),
-  E("Face Pull", "pull", ["rear-delts","upper-back"], ["cable","band"], "beginner", ["accessory","shoulder-health"], [], 3, "15", 45),
-  E("Band Pull-Apart", "pull", ["rear-delts","upper-back"], ["band"], "beginner", ["warmup","shoulder-health"], [], 3, "15", 30),
-  E("Reverse Fly", "pull", ["rear-delts"], ["dumbbell","cable"], "beginner", ["isolation","shoulder-health"], [], 3, "12", 45),
-  E("Single-Arm Cable Row", "pull", ["back","biceps"], ["cable"], "beginner", ["upper","unilateral"], [], 3, "10/side", 60),
-  E("Single-Arm Dumbbell Row", "pull", ["back","biceps","lats"], ["dumbbell","bench"], "beginner", ["upper","unilateral"], [], 3, "10/side", 60),
-  E("Kroc Row", "pull", ["back","lats","grip"], ["dumbbell","bench"], "advanced", ["upper","unilateral"], ["low back injury"], 3, "20/side", 90, "High-rep heavy row, some body english permitted."),
-  E("Chest-Supported DB Row", "pull", ["back","rear-delts"], ["dumbbell","bench"], "beginner", ["upper","beginner-friendly","low-back-safe"], [], 3, "10", 60),
-
-  // ── PULL: VERTICAL ───────────────────────────────────────
-  E("Pull-up", "pull", ["lats","biceps","back"], ["pullup-bar"], "advanced", ["bodyweight","upper"], ["elbow injury"], 4, "6", 120),
-  E("Chin-up", "pull", ["biceps","back"], ["pullup-bar"], "intermediate", ["bodyweight","upper"], ["elbow injury"], 4, "6", 120),
-  E("Neutral-Grip Pull-up", "pull", ["lats","biceps"], ["pullup-bar"], "intermediate", ["bodyweight","upper"], ["elbow injury"], 4, "6", 120, "Easier on shoulders."),
-  E("Weighted Pull-up", "pull", ["lats","biceps"], ["pullup-bar","dip-belt"], "advanced", ["upper"], ["elbow injury","shoulder injury"], 4, "5", 150),
-  E("Assisted Pull-up", "pull", ["lats","biceps"], ["machine","band"], "beginner", ["upper","beginner-friendly"], [], 3, "8", 90),
-  E("Lat Pulldown", "pull", ["lats","biceps"], ["machine","cable"], "beginner", ["upper","beginner-friendly"], [], 3, "10", 90),
-  E("Straight-Arm Pulldown", "pull", ["lats"], ["cable"], "beginner", ["isolation","upper"], [], 3, "12", 60),
-  E("Kneeling Cable Pulldown", "pull", ["lats","core"], ["cable"], "intermediate", ["upper","core"], [], 3, "10", 60),
-  E("Reverse-Grip Lat Pulldown", "pull", ["lats","biceps"], ["machine","cable"], "beginner", ["upper"], [], 3, "10", 75, "Supinated grip — a.k.a. front pulldown. Elbows drive down."),
-  E("Single-Arm Lat Pulldown", "pull", ["lats"], ["cable"], "intermediate", ["upper","unilateral","isolation"], [], 3, "10/side", 60),
-  E("Scapular Pull-up", "pull", ["lats","upper-back"], ["pullup-bar"], "beginner", ["mobility","shoulder-health","bodyweight"], [], 3, "8", 45, "Hang, depress shoulders without bending elbows."),
-  E("Dumbbell Pullover", "pull", ["lats","chest"], ["dumbbell","bench"], "intermediate", ["upper","isolation"], ["shoulder injury"], 3, "10", 75),
-
-  // ── ARMS ─────────────────────────────────────────────────
-  E("Barbell Curl", "pull", ["biceps"], ["barbell"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Dumbbell Curl", "pull", ["biceps"], ["dumbbell"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Hammer Curl", "pull", ["biceps","forearms"], ["dumbbell"], "beginner", ["isolation","arms"], [], 3, "10", 45),
-  E("Preacher Curl", "pull", ["biceps"], ["barbell","dumbbell","bench"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Incline DB Curl", "pull", ["biceps"], ["dumbbell","bench"], "intermediate", ["isolation","arms"], ["shoulder injury"], 3, "10", 60),
-  E("Cable Curl", "pull", ["biceps"], ["cable"], "beginner", ["isolation","arms"], [], 3, "12", 45),
-  E("Concentration Curl", "pull", ["biceps"], ["dumbbell","bench"], "beginner", ["isolation","arms"], [], 3, "12", 45),
-  E("Tricep Pushdown", "push", ["triceps"], ["cable"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "12", 45),
-  E("Overhead Tricep Extension", "push", ["triceps"], ["dumbbell","cable"], "beginner", ["isolation","arms"], ["shoulder injury","elbow injury"], 3, "12", 60),
-  E("Skullcrusher", "push", ["triceps"], ["barbell","dumbbell","bench"], "intermediate", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Close-Grip Push-up", "push", ["triceps","chest"], ["bodyweight"], "beginner", ["bodyweight","arms"], ["wrist injury"], 3, "10", 60),
-  E("Tricep Kickback", "push", ["triceps"], ["dumbbell"], "beginner", ["isolation","arms"], [], 3, "12", 45),
-  E("DB Skullcrusher", "push", ["triceps"], ["dumbbell","bench"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60, "Elbow-friendlier than barbell."),
-  E("Cable Overhead Tricep Extension", "push", ["triceps"], ["cable","rope"], "beginner", ["isolation","arms"], ["shoulder injury"], 3, "12", 45),
-
-  // ── CORE ─────────────────────────────────────────────────
-  E("Plank", "core", ["core"], ["bodyweight"], "beginner", ["isometric","core"], [], 3, "45s", 45),
-  E("Side Plank", "core", ["obliques","core"], ["bodyweight"], "beginner", ["isometric","core"], [], 3, "30s/side", 45),
-  E("RKC Plank", "core", ["core"], ["bodyweight"], "intermediate", ["isometric","core"], [], 3, "20s", 60, "Maximum tension plank."),
-  E("Dead Bug", "core", ["core"], ["bodyweight"], "beginner", ["core","beginner-friendly","low-back-safe"], [], 3, "8/side", 45),
-  E("Bird Dog", "core", ["core","glutes"], ["bodyweight"], "beginner", ["core","stability","low-back-safe"], [], 3, "8/side", 45),
-  E("Pallof Press", "core", ["core","obliques"], ["cable","band"], "beginner", ["anti-rotation","core"], [], 3, "10/side", 45),
-  E("Suitcase Carry", "core", ["core","obliques","grip"], ["kettlebell","dumbbell"], "beginner", ["carry","anti-lateral-flexion"], [], 3, "30m/side", 60),
-  E("Farmer Carry", "cardio", ["grip","core","traps"], ["dumbbell","kettlebell"], "beginner", ["conditioning","grip"], [], 3, "40m", 75),
-  E("Ab Wheel Rollout", "core", ["core","lats"], ["ab-wheel"], "advanced", ["core"], ["low back injury"], 3, "8", 75),
-  E("Hanging Leg Raise", "core", ["core","hip-flexors"], ["pullup-bar"], "advanced", ["core","bodyweight"], ["low back injury"], 3, "8", 75),
-  E("Hanging Knee Raise", "core", ["core","hip-flexors"], ["pullup-bar"], "intermediate", ["core","bodyweight"], [], 3, "10", 60),
-  E("Cable Crunch", "core", ["core"], ["cable"], "beginner", ["core","isolation"], ["low back injury"], 3, "12", 45),
-  E("Russian Twist", "core", ["obliques","core"], ["dumbbell","plate","bodyweight"], "beginner", ["core"], ["low back injury"], 3, "12/side", 45),
-  E("V-Up", "core", ["core"], ["bodyweight"], "intermediate", ["core","bodyweight"], ["low back injury"], 3, "12", 60),
-  E("Hollow Hold", "core", ["core"], ["bodyweight"], "intermediate", ["isometric","core"], [], 3, "30s", 60),
-  E("GHD Sit-up", "core", ["core","hip-flexors"], ["ghd"], "advanced", ["core"], ["low back injury","neck injury"], 3, "10", 75),
-  E("Copenhagen Plank", "core", ["adductors","core"], ["bench","bodyweight"], "advanced", ["isometric","adductor"], [], 3, "20s/side", 60),
-  E("Reverse Crunch", "core", ["core"], ["bodyweight","bench"], "beginner", ["core","bodyweight","low-back-safe"], [], 3, "12", 45),
-  E("Dragon Flag", "core", ["core"], ["bench","bodyweight"], "advanced", ["core","bodyweight"], ["low back injury"], 3, "5", 90),
-  E("Windmill", "core", ["obliques","core","shoulders"], ["kettlebell"], "intermediate", ["core","anti-lateral-flexion"], ["low back injury","shoulder injury"], 3, "5/side", 60),
-  E("Turkish Get-Up", "core", ["full body","core","shoulders"], ["kettlebell","dumbbell"], "advanced", ["core","stability","unilateral"], [], 3, "3/side", 90, "Slow, controlled full sequence."),
-
-  // ── CONDITIONING / CARRIES ───────────────────────────────
-  E("Sled Push", "cardio", ["quads","full body"], ["sled"], "intermediate", ["conditioning","power"], [], 4, "20m", 90),
-  E("Sled Drag (Backward)", "cardio", ["quads"], ["sled"], "beginner", ["conditioning","knee-friendly"], [], 4, "20m", 75, "Rehab-friendly."),
-  E("Prowler Sprint", "cardio", ["full body"], ["sled"], "advanced", ["conditioning","power"], [], 5, "15m", 90),
-  E("Rowing (Erg)", "cardio", ["full body"], ["rower"], "beginner", ["conditioning"], [], 1, "20min", 0),
-  E("Assault Bike", "cardio", ["full body"], ["bike"], "beginner", ["conditioning","low-impact"], [], 1, "15min", 0),
-  E("Burpee", "cardio", ["full body"], ["bodyweight"], "intermediate", ["conditioning","bodyweight"], ["low back injury","wrist injury"], 4, "10", 60),
-  E("Mountain Climber", "cardio", ["core","legs"], ["bodyweight"], "beginner", ["conditioning","bodyweight"], ["wrist injury"], 3, "30s", 45),
-  E("Box Jump", "cardio", ["quads","glutes"], ["box"], "intermediate", ["power","plyometric"], ["knee injury"], 4, "5", 90),
-  E("Broad Jump", "cardio", ["quads","glutes"], ["bodyweight"], "intermediate", ["power","plyometric"], ["knee injury"], 4, "5", 90),
-  E("Skipping Rope", "cardio", ["calves","full body"], ["rope"], "beginner", ["conditioning"], [], 3, "60s", 45),
-
-  // ── CALVES / ACCESSORY ───────────────────────────────────
-  E("Standing Calf Raise", "squat", ["calves"], ["machine","dumbbell"], "beginner", ["isolation","lower"], [], 3, "15", 45),
-  E("Seated Calf Raise", "squat", ["calves"], ["machine"], "beginner", ["isolation","lower"], [], 3, "15", 45),
-  E("Single-Leg Calf Raise", "squat", ["calves"], ["bodyweight","dumbbell"], "beginner", ["isolation","unilateral"], [], 3, "12/leg", 45),
-  E("Tibialis Raise", "squat", ["tibialis"], ["bodyweight","plate"], "beginner", ["isolation","knee-health"], [], 3, "15", 45),
-  E("Reverse Nordic", "squat", ["quads"], ["bodyweight"], "intermediate", ["isolation","knee-health","flexibility"], ["knee injury"], 3, "8", 60, "Lean back from knees, keep hips extended."),
-
-  // ── MOBILITY / WARMUP ────────────────────────────────────
-  E("Cat-Cow", "mobility", ["spine"], ["bodyweight"], "beginner", ["mobility","warmup","prenatal-safe"], [], 2, "8", 0),
-  E("90/90 Hip Switch", "mobility", ["hips"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "6/side", 0),
-  E("Thoracic Rotation", "mobility", ["thoracic"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "8/side", 0),
-  E("Wall Slide", "mobility", ["shoulders","thoracic"], ["bodyweight"], "beginner", ["mobility","shoulder-health","warmup"], [], 2, "10", 0),
-  E("Scap Push-up", "mobility", ["serratus","scapula"], ["bodyweight"], "beginner", ["mobility","warmup"], ["wrist injury"], 2, "10", 0),
-  E("Hip CAR", "mobility", ["hips"], ["bodyweight"], "beginner", ["mobility","joint-health"], [], 2, "5/side", 0),
-  E("Shoulder CAR", "mobility", ["shoulders"], ["bodyweight"], "beginner", ["mobility","joint-health","warmup"], [], 2, "5/side", 0),
-  E("Leg Swing", "mobility", ["hips"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "10/side", 0),
-  E("Cossack Reach", "mobility", ["hips","adductors"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "6/side", 0),
-  E("Spiderman Lunge", "mobility", ["hips","hip-flexors","thoracic"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "5/side", 0),
-  E("Inchworm", "mobility", ["hamstrings","shoulders","core"], ["bodyweight"], "beginner", ["mobility","warmup"], ["wrist injury"], 2, "6", 0),
-  E("Adductor Rockback", "mobility", ["adductors","hips"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "8/side", 0),
-
-  // ── STRETCHES ────────────────────────────────────────────
-  E("Child's Pose", "stretch", ["hips","back"], ["bodyweight"], "beginner", ["flexibility","recovery","prenatal-safe"], [], 2, "60s", 0),
-  E("Pigeon Pose", "stretch", ["hips","glutes"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "60s/side", 0),
-  E("Downward Dog", "stretch", ["hamstrings","shoulders"], ["bodyweight"], "beginner", ["flexibility","warmup"], ["wrist injury"], 2, "30s", 0),
-  E("Couch Stretch", "stretch", ["hip-flexors","quads"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "60s/side", 0),
-  E("Jefferson Curl", "stretch", ["hamstrings","spine"], ["dumbbell","kettlebell","bodyweight"], "intermediate", ["flexibility"], ["low back injury","disc issue"], 3, "8", 60, "Slow, light, sequential spinal flexion."),
-  E("Figure-4 Stretch", "stretch", ["glutes","hips"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "45s/side", 0, "Supine — helpful for low-back tightness and sciatica."),
-  E("Supine Hamstring Stretch", "stretch", ["hamstrings"], ["bodyweight","band"], "beginner", ["flexibility"], [], 2, "45s/side", 0, "Strap-assisted if tight."),
-  E("Half-Kneeling Hip Flexor Stretch", "stretch", ["hip-flexors","quads"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "45s/side", 0, "Desk workers, runners."),
-  E("Standing Quad Stretch", "stretch", ["quads","hip-flexors"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "30s/side", 0),
-  E("90/90 Hip Stretch", "stretch", ["hips","glutes"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "45s/side", 0, "Static hold — distinct from the dynamic switch drill."),
-  E("Butterfly Stretch", "stretch", ["adductors","hips"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "60s", 0),
-  E("Happy Baby", "stretch", ["hips","low-back"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "45s", 0, "Supine — avoid in late pregnancy."),
-  E("Frog Stretch", "stretch", ["adductors","hips"], ["bodyweight"], "beginner", ["flexibility"], ["knee injury"], 2, "60s", 0, "Hip internal-rotation opener."),
-  E("Doorway Pec Stretch", "stretch", ["chest","shoulders"], ["bodyweight"], "beginner", ["flexibility","shoulder-health","prenatal-safe"], [], 2, "30s/side", 0),
-  E("Sleeper Stretch", "stretch", ["shoulders"], ["bodyweight"], "intermediate", ["flexibility","shoulder-health"], ["shoulder injury"], 2, "30s/side", 0, "Posterior capsule — throwers, swimmers."),
-  E("Thread the Needle", "stretch", ["thoracic","shoulders"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "30s/side", 0),
-  E("Puppy Pose", "stretch", ["chest","shoulders","lats"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "45s", 0),
-  E("Wrist Flexor/Extensor Stretch", "stretch", ["forearms"], ["bodyweight"], "beginner", ["flexibility","joint-health"], [], 2, "30s each", 0, "Both directions — desk worker essential."),
-  E("Supine Spinal Twist", "stretch", ["back","obliques"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "45s/side", 0, "Supine — avoid in late pregnancy."),
-  E("Wall Calf Stretch (Gastroc)", "stretch", ["calves"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "30s/side", 0, "Straight back leg."),
-  E("Soleus Stretch (Bent Knee)", "stretch", ["calves"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "30s/side", 0, "Bent back knee — Achilles health."),
-
-  // ── MACHINE: LOWER BODY ──────────────────────────────────
-  E("45° Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "beginner", ["lower","machine"], [], 3, "10", 90, "Keep lower back against pad."),
-  E("Horizontal Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "beginner", ["lower","machine","beginner-friendly"], [], 3, "12", 90),
-  E("Vertical Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "intermediate", ["lower","machine"], ["low back injury","knee injury"], 3, "10", 90),
-  E("Single-Leg Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "intermediate", ["unilateral","lower","machine"], [], 3, "10/leg", 75),
-  E("Belt Squat", "squat", ["quads","glutes"], ["machine"], "intermediate", ["lower","machine","spine-friendly"], [], 3, "10", 90, "Loads legs without spinal compression."),
-  E("Smith Machine Squat", "squat", ["quads","glutes"], ["smith-machine"], "beginner", ["lower","machine"], [], 3, "10", 90),
-  E("Smith Machine Lunge", "squat", ["quads","glutes"], ["smith-machine"], "beginner", ["unilateral","lower","machine"], [], 3, "10/leg", 75),
-  E("Leg Extension", "squat", ["quads"], ["machine"], "beginner", ["isolation","lower","machine"], ["knee injury"], 3, "12", 60),
-  E("Single-Leg Leg Extension", "squat", ["quads"], ["machine"], "beginner", ["isolation","unilateral","lower","machine"], ["knee injury"], 3, "12/leg", 45),
-  E("Seated Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","lower","machine"], [], 3, "12", 60),
-  E("Lying Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","lower","machine"], [], 3, "12", 60),
-  E("Single-Leg Lying Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","unilateral","lower","machine"], [], 3, "12/leg", 45),
-  E("Standing Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","unilateral","lower","machine"], [], 3, "12/leg", 60),
-  E("Hip Abduction Machine", "squat", ["glutes"], ["machine"], "beginner", ["isolation","lower","machine","glute"], [], 3, "15", 45),
-  E("Hip Adduction Machine", "squat", ["adductors"], ["machine"], "beginner", ["isolation","lower","machine"], [], 3, "15", 45),
-  E("Glute Kickback Machine", "hinge", ["glutes"], ["machine"], "beginner", ["isolation","glute","machine","unilateral"], [], 3, "12/leg", 45),
-
-  // ── MACHINE: UPPER BODY PUSH ─────────────────────────────
-  E("Chest Press Machine", "push", ["chest","triceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], [], 3, "10", 75),
-  E("Incline Chest Press Machine", "push", ["upper-chest"], ["machine"], "beginner", ["upper","machine"], [], 3, "10", 75),
-  E("Decline Chest Press Machine", "push", ["lower-chest"], ["machine"], "beginner", ["upper","machine"], [], 3, "10", 75),
-  E("Hammer Strength Chest Press", "push", ["chest","triceps"], ["machine"], "intermediate", ["upper","machine"], [], 3, "8", 90),
-  E("Shoulder Press Machine", "push", ["shoulders","triceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], ["shoulder injury"], 3, "10", 75),
-  E("Smith Machine Bench Press", "push", ["chest","triceps"], ["smith-machine","bench"], "intermediate", ["upper","machine"], ["shoulder injury"], 4, "8", 120),
-  E("Smith Machine Overhead Press", "push", ["shoulders"], ["smith-machine"], "intermediate", ["upper","machine"], ["shoulder injury"], 3, "8", 90),
-  E("Lateral Raise Machine", "push", ["shoulders"], ["machine"], "beginner", ["isolation","upper","machine"], [], 3, "12", 45),
-
-  // ── MACHINE: UPPER BODY PULL ─────────────────────────────
-  E("Hammer Strength Row", "pull", ["back","biceps"], ["machine"], "intermediate", ["upper","machine"], [], 3, "8", 90),
-  E("Seated Row Machine", "pull", ["back","biceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], [], 3, "10", 75),
-  E("Rear Delt Machine", "pull", ["rear-delts"], ["machine"], "beginner", ["isolation","shoulder-health","machine"], [], 3, "12", 45),
-  E("Assisted Dip Machine", "push", ["chest","triceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], [], 3, "8", 90),
-  E("Pullover Machine", "pull", ["lats"], ["machine"], "intermediate", ["upper","machine","isolation"], [], 3, "10", 75),
-
-  // ── MACHINE: ARMS ────────────────────────────────────────
-  E("Preacher Curl Machine", "pull", ["biceps"], ["machine"], "beginner", ["isolation","arms","machine"], ["elbow injury"], 3, "10", 60),
-  E("Biceps Curl Machine", "pull", ["biceps"], ["machine"], "beginner", ["isolation","arms","machine"], [], 3, "12", 45),
-  E("Tricep Press Machine", "push", ["triceps"], ["machine"], "beginner", ["isolation","arms","machine"], [], 3, "12", 45),
-  E("Tricep Extension Machine", "push", ["triceps"], ["machine"], "beginner", ["isolation","arms","machine"], [], 3, "12", 45),
-
-  // ── MACHINE: CORE ────────────────────────────────────────
-  E("Ab Crunch Machine", "core", ["core"], ["machine"], "beginner", ["core","machine","isolation"], ["low back injury","neck injury"], 3, "15", 45),
-  E("Rotary Torso Machine", "core", ["obliques"], ["machine"], "beginner", ["core","machine","isolation"], ["low back injury"], 3, "12/side", 45),
-  E("Roman Chair Sit-up", "core", ["core","hip-flexors"], ["machine"], "intermediate", ["core","machine"], ["low back injury"], 3, "12", 60),
-
-  // ── ADDITIONAL CABLE ─────────────────────────────────────
-  E("Cable Woodchopper", "core", ["obliques","core"], ["cable"], "intermediate", ["core","anti-rotation","cable"], [], 3, "10/side", 45),
-  E("Cable Pull-Through", "hinge", ["glutes","hamstrings"], ["cable"], "beginner", ["posterior","cable","glute"], [], 3, "12", 60),
-  E("Cable Kickback", "hinge", ["glutes"], ["cable"], "beginner", ["isolation","glute","cable","unilateral"], [], 3, "12/leg", 45),
-  E("Cable Crossover", "push", ["chest"], ["cable"], "beginner", ["isolation","upper","cable"], [], 3, "12", 60),
-];
-
-/* ============================================================
    MODALITY (derived from equipment)
    ============================================================ */
 const MODALITIES = [
@@ -513,7 +243,6 @@ export default function CoachApp() {
   const [coaches, setCoaches] = useState([]);
   const [currentCoachId, setCurrentCoachId] = useState(null);
   const [allClients, setAllClients] = useState([]);
-  const [exercises, setExercises] = useState([]);
   const [allWorkouts, setAllWorkouts] = useState([]); // { id, coachId, name, clientId?, date?, isTemplate, blocks }
   const [allLogs, setAllLogs] = useState([]); // { id, workoutId, exId, setIdx, weight, reps, notes, source, date }
   const [allAttendance, setAllAttendance] = useState([]); // { id, workoutId, status, date }
@@ -534,11 +263,10 @@ export default function CoachApp() {
       const version = await load("coach:version", 0);
       const stale = version < SCHEMA_VERSION;
 
-      const [coachList, curCoach, c, e, w, l, a, legacyUnitPref] = await Promise.all([
+      const [coachList, curCoach, c, w, l, a, legacyUnitPref] = await Promise.all([
         load("coach:coaches", null),
         load("coach:currentCoachId", null),
         load("coach:clients", null),
-        load("coach:exercises", null),
         load("coach:workouts", null),
         load("coach:logs", null),
         load("coach:attendance", null),
@@ -558,16 +286,6 @@ export default function CoachApp() {
       const currentInit = (curCoach && isCoachActive(curCoach)) ? curCoach : (firstActive?.id || coachesInit[0]?.id || "coach_alex");
 
       const clientsInit = c ? c.map(cl => ({ ...cl, coachId: cl.coachId || currentInit })) : SEED_CLIENTS;
-
-      // Exercise library: on stale or empty use full seed, otherwise merge new seed entries by name
-      let exercisesInit;
-      if (!e) {
-        exercisesInit = SEED_EXERCISES;
-      } else {
-        const existingNames = new Set(e.map(ex => ex.name.toLowerCase()));
-        const newOnes = SEED_EXERCISES.filter(ex => !existingNames.has(ex.name.toLowerCase()));
-        exercisesInit = newOnes.length > 0 ? [...e, ...newOnes] : e;
-      }
 
       // Workouts: preserve, ensure coachId tagged, add planned weight field, and tag each block with unit
       const rawWorkouts = w
@@ -707,7 +425,6 @@ export default function CoachApp() {
       // localStorage value (coachList) is still read for currentInit fallback.
       setCurrentCoachId(currentInit);
       setAllClients(clientsAfterFlip);
-      setExercises(exercisesInit);
       setAllWorkouts(workoutsAfterFlip);
       setAllLogs(logsInit);
       setAllAttendance(a || []);
@@ -753,7 +470,6 @@ export default function CoachApp() {
   // Save
   useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
   useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
-  useEffect(() => { if (loaded) save("coach:exercises", exercises); }, [exercises, loaded]);
   useEffect(() => { if (loaded) save("coach:logs", allLogs); }, [allLogs, loaded]);
   useEffect(() => { if (loaded) save("coach:attendance", allAttendance); }, [allAttendance, loaded]);
 
@@ -771,6 +487,7 @@ export default function CoachApp() {
     [dbClients]
   );
   const { workouts } = useWorkouts(currentCoachId);
+  const { exercises, createExercise, updateExercise, deleteExercise } = useExercises(currentCoachId);
   const workoutIdsForCoach = useMemo(() => new Set(workouts.map(w => w.id)), [workouts]);
   const logs = useMemo(() => allLogs.filter(l => workoutIdsForCoach.has(l.workoutId)), [allLogs, workoutIdsForCoach]);
   const attendance = useMemo(() => allAttendance.filter(a => workoutIdsForCoach.has(a.workoutId)), [allAttendance, workoutIdsForCoach]);
@@ -972,9 +689,31 @@ export default function CoachApp() {
           {view === "library" && (
             <ExerciseLibrary
               exercises={exercises} clients={clients}
-              onAdd={(ex) => { setExercises([...exercises, ex]); notify("Exercise added"); }}
-              onUpdate={(ex) => setExercises(exercises.map(x => x.id === ex.id ? ex : x))}
-              onDelete={(id) => setExercises(exercises.filter(x => x.id !== id))}
+              onAdd={async (ex) => {
+                try {
+                  await createExercise(ex);
+                  notify("Exercise added");
+                } catch (err) {
+                  console.error("createExercise failed", err);
+                  alert(err.message || "Failed to add exercise. Please try again.");
+                }
+              }}
+              onUpdate={async (ex) => {
+                try {
+                  await updateExercise(ex.id, ex);
+                } catch (err) {
+                  console.error("updateExercise failed", err);
+                  alert(err.message || "Failed to update exercise. Please try again.");
+                }
+              }}
+              onDelete={async (id) => {
+                try {
+                  await deleteExercise(id);
+                } catch (err) {
+                  console.error("deleteExercise failed", err);
+                  alert(err.message || "Failed to delete exercise. Please try again.");
+                }
+              }}
             />
           )}
           {view === "templates" && (
@@ -3584,7 +3323,7 @@ function ExerciseLibrary({ exercises, clients, onAdd, onUpdate, onDelete }) {
       </div>
 
       {editing && <ExerciseEditor ex={editing} existingExercises={exercises} onClose={() => setEditing(null)} onSave={(e) => { onUpdate(e); setEditing(null); }} onDelete={() => { onDelete(editing.id); setEditing(null); }}/>}
-      {creating && <ExerciseEditor ex={null} existingExercises={exercises} onClose={() => setCreating(false)} onSave={(e) => { onAdd({...e, id: uid("ex")}); setCreating(false); }}/>}
+      {creating && <ExerciseEditor ex={null} existingExercises={exercises} onClose={() => setCreating(false)} onSave={(e) => { onAdd(e); setCreating(false); }}/>}
     </div>
   );
 }
