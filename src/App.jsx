@@ -15,6 +15,8 @@ import { useMeasurements } from './hooks/useMeasurements.js';
 import { useWorkouts } from './hooks/useWorkouts.js';
 import { useClientNotes } from './hooks/useClientNotes.js';
 import { useExercises } from './hooks/useExercises.js';
+import { useLogs } from './hooks/useLogs.js';
+import { useAttendance } from './hooks/useAttendance.js';
 
 /* ============================================================
    STYLES — injected once at mount
@@ -244,8 +246,6 @@ export default function CoachApp() {
   const [currentCoachId, setCurrentCoachId] = useState(null);
   const [allClients, setAllClients] = useState([]);
   const [allWorkouts, setAllWorkouts] = useState([]); // { id, coachId, name, clientId?, date?, isTemplate, blocks }
-  const [allLogs, setAllLogs] = useState([]); // { id, workoutId, exId, setIdx, weight, reps, notes, source, date }
-  const [allAttendance, setAllAttendance] = useState([]); // { id, workoutId, status, date }
   const [archivePending, setArchivePending] = useState(null); // { coach, activeClients } when modal is open
   const [isAddProfileOpen, setIsAddProfileOpen] = useState(false);
   // unitPref is now a constant — per-block unit overrides live on each block/log.
@@ -263,13 +263,11 @@ export default function CoachApp() {
       const version = await load("coach:version", 0);
       const stale = version < SCHEMA_VERSION;
 
-      const [coachList, curCoach, c, w, l, a, legacyUnitPref] = await Promise.all([
+      const [coachList, curCoach, c, w, legacyUnitPref] = await Promise.all([
         load("coach:coaches", null),
         load("coach:currentCoachId", null),
         load("coach:clients", null),
         load("coach:workouts", null),
-        load("coach:logs", null),
-        load("coach:attendance", null),
         load("coach:unitPref", null),  // read legacy value for migration only
       ]);
 
@@ -307,7 +305,6 @@ export default function CoachApp() {
       // (weights) and cm-canonical (lengths); v7 stores lb and inches. Fresh
       // installs (version=0) land on lb/in seed data and skip the flip.
       const needsUnitFlip = version > 0 && version < 7;
-      let logsInit = l || [];
       let clientsAfterFlip = clientsInit;
       let workoutsAfterFlip = workoutsInit;
       if (needsUnitFlip) {
@@ -328,17 +325,6 @@ export default function CoachApp() {
             })),
           }));
         }
-
-        logsInit = logsInit.map(lg => ({
-          ...lg,
-          actualWeight: lg.actualWeight == null ? null : kgToLb(lg.actualWeight),
-          perSet: Array.isArray(lg.perSet)
-            ? lg.perSet.map(s => ({
-                ...s,
-                weight: s.weight == null ? null : kgToLb(s.weight),
-              }))
-            : lg.perSet,
-        }));
 
         if (c) {
           clientsAfterFlip = clientsInit.map(cl => {
@@ -370,64 +356,11 @@ export default function CoachApp() {
         }
       }
 
-      // Logs: migrate per-set logs → single-entry-per-exercise (if schema stale)
-      if (stale && logsInit.length > 0 && logsInit[0] && !("mode" in logsInit[0])) {
-        // Old format: many logs per workout/exercise (one per set)
-        // New format: one log per workout/exercise with mode+perSet
-        const grouped = {};
-        logsInit.forEach(log => {
-          const key = log.workoutId + "|" + log.exId;
-          if (!grouped[key]) grouped[key] = [];
-          grouped[key].push(log);
-        });
-        logsInit = Object.entries(grouped).map(([key, sets]) => {
-          const first = sets[0];
-          // Find the workout block to get planned values
-          const wo = workoutsAfterFlip.find(x => x.id === first.workoutId);
-          const block = wo?.blocks.find(bl => bl.exId === first.exId);
-          const planned = block ? { sets: block.sets, reps: block.reps, weight: block.weight } : null;
-
-          // Check if all sets had consistent weight/reps
-          const weights = sets.map(s => s.weight);
-          const allSameWeight = weights.every(w => w === weights[0]);
-          const repsArr = sets.map(s => String(s.reps));
-          const allSameReps = repsArr.every(r => r === repsArr[0]);
-
-          const mode = (allSameWeight && allSameReps && (!planned || (planned.weight == null || Number(planned.weight) === Number(weights[0])))) ? "asPlanned" : "modified";
-
-          return {
-            id: uid("log"),
-            workoutId: first.workoutId,
-            exId: first.exId,
-            date: first.date,
-            source: first.source || "coach",
-            notes: sets.map(s => s.notes).filter(Boolean).join(" · ") || "",
-            completed: true,
-            mode,
-            actualSets: sets.length,
-            actualReps: allSameReps ? repsArr[0] : repsArr.join(", "),
-            actualWeight: allSameWeight ? weights[0] : null,
-            perSet: mode === "modified" ? sets.map(s => ({ reps: s.reps, weight: s.weight })) : null,
-            unit: block?.unit || migrationUnit,
-          };
-        });
-      } else {
-        // Ensure every existing log has a unit field
-        logsInit = logsInit.map(lg => {
-          if (lg.unit) return lg;
-          const wo = workoutsAfterFlip.find(x => x.id === lg.workoutId);
-          const block = wo?.blocks.find(bl => bl.exId === lg.exId);
-          return { ...lg, unit: block?.unit || migrationUnit };
-        });
-      }
-
       // coaches state now derives from Supabase (see effect below). The
       // localStorage value (coachList) is still read for currentInit fallback.
       setCurrentCoachId(currentInit);
       setAllClients(clientsAfterFlip);
       setAllWorkouts(workoutsAfterFlip);
-      setAllLogs(logsInit);
-      setAllAttendance(a || []);
 
       if (stale) await save("coach:version", SCHEMA_VERSION);
       // Legacy unitPref key no longer read on future loads — clear it to keep storage tidy.
@@ -470,8 +403,6 @@ export default function CoachApp() {
   // Save
   useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
   useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
-  useEffect(() => { if (loaded) save("coach:logs", allLogs); }, [allLogs, loaded]);
-  useEffect(() => { if (loaded) save("coach:attendance", allAttendance); }, [allAttendance, loaded]);
 
   // ── Coach-scoped views — each coach only sees their own ──
   // Clients are read from Supabase; writes still go to localStorage this step.
@@ -488,21 +419,8 @@ export default function CoachApp() {
   );
   const { workouts, createWorkout, updateWorkout, deleteWorkout } = useWorkouts(currentCoachId);
   const { exercises, createExercise, updateExercise, deleteExercise } = useExercises(currentCoachId);
-  const workoutIdsForCoach = useMemo(() => new Set(workouts.map(w => w.id)), [workouts]);
-  const logs = useMemo(() => allLogs.filter(l => workoutIdsForCoach.has(l.workoutId)), [allLogs, workoutIdsForCoach]);
-  const attendance = useMemo(() => allAttendance.filter(a => workoutIdsForCoach.has(a.workoutId)), [allAttendance, workoutIdsForCoach]);
-
-  // Scoped setters — mutate only current-coach data, leave other coaches untouched
-  const setLogs = (next) => {
-    const resolved = typeof next === "function" ? next(logs) : next;
-    const others = allLogs.filter(l => !workoutIdsForCoach.has(l.workoutId));
-    setAllLogs([...others, ...resolved]);
-  };
-  const setAttendance = (next) => {
-    const resolved = typeof next === "function" ? next(attendance) : next;
-    const others = allAttendance.filter(a => !workoutIdsForCoach.has(a.workoutId));
-    setAllAttendance([...others, ...resolved]);
-  };
+  const { logs, createLog, deleteLog } = useLogs(currentCoachId);
+  const { attendance, setAttendance: upsertAttendance } = useAttendance(currentCoachId);
 
   const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
 
@@ -676,9 +594,27 @@ export default function CoachApp() {
                   setView("builder");
                 }
               }}
-              onLog={(log) => { setLogs([...logs, {...log, id: uid("log")}]); notify("Logged"); }}
-              onAttendance={(rec) => { setAttendance([...attendance.filter(a => a.workoutId !== rec.workoutId), {...rec, id: uid("att")}]); notify(`Marked ${rec.status}`); }}
-              onDeleteLog={(id) => setLogs(logs.filter(l => l.id !== id))}
+              onLog={async (log) => {
+                try { await createLog(log); notify("Logged"); }
+                catch (err) {
+                  console.error("log save failed", err);
+                  alert("Failed to save log: " + err.message);
+                }
+              }}
+              onAttendance={async (rec) => {
+                try { await upsertAttendance(rec.workoutId, rec.status, rec.date); notify(`Marked ${rec.status}`); }
+                catch (err) {
+                  console.error("attendance save failed", err);
+                  alert("Failed to save attendance: " + err.message);
+                }
+              }}
+              onDeleteLog={async (id) => {
+                try { await deleteLog(id); }
+                catch (err) {
+                  console.error("log delete failed", err);
+                  alert("Failed to delete log: " + err.message);
+                }
+              }}
             />
           )}
           {view === "library" && (
@@ -772,7 +708,13 @@ export default function CoachApp() {
               logs={logs.filter(l => workouts.some(w => w.id === l.workoutId && w.clientId === selectedClient.id))}
               unitPref={unitPref}
               onExit={() => setView("client")}
-              onLog={(log) => { setLogs([...logs, {...log, id: uid("log"), source: "client"}]); notify("Logged"); }}
+              onLog={async (log) => {
+                try { await createLog({...log, source: "client"}); notify("Logged"); }
+                catch (err) {
+                  console.error("solo log save failed", err);
+                  alert("Failed to save log: " + err.message);
+                }
+              }}
               onCreateSelfDirected={async (workout) => {
                 const w = { ...workout, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
                 try {
