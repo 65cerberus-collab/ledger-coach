@@ -206,5 +206,39 @@ export function useWorkouts(coachId) {
     setWorkouts(prev => prev.filter(w => w.id !== id));
   };
 
-  return { workouts, loading, error, createWorkout, updateWorkout, deleteWorkout };
+  const completeWorkout = async (id) => {
+    const { data, error: updateError } = await supabase
+      .from('workouts')
+      .update({ completed_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('coach_id', coachId)
+      .select(WORKOUT_SELECT)
+      .single();
+    if (updateError) {
+      console.error('completeWorkout failed', updateError);
+      throw new Error(`Failed to complete workout: ${updateError.message}`);
+    }
+    const updated = fromRow(data);
+    setWorkouts(prev => prev.map(w => w.id === id ? updated : w));
+    return updated;
+  };
+
+  const uncompleteWorkout = async (id) => {
+    const { data, error: updateError } = await supabase
+      .from('workouts')
+      .update({ completed_at: null })
+      .eq('id', id)
+      .eq('coach_id', coachId)
+      .select(WORKOUT_SELECT)
+      .single();
+    if (updateError) {
+      console.error('uncompleteWorkout failed', updateError);
+      throw new Error(`Failed to uncomplete workout: ${updateError.message}`);
+    }
+    const updated = fromRow(data);
+    setWorkouts(prev => prev.map(w => w.id === id ? updated : w));
+    return updated;
+  };
+
+  return { workouts, loading, error, createWorkout, updateWorkout, deleteWorkout, completeWorkout, uncompleteWorkout };
 }
