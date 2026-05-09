@@ -417,7 +417,7 @@ export default function CoachApp() {
     })),
     [dbClients]
   );
-  const { workouts, createWorkout, updateWorkout, deleteWorkout } = useWorkouts(currentCoachId);
+  const { workouts, createWorkout, updateWorkout, deleteWorkout, completeWorkout, uncompleteWorkout } = useWorkouts(currentCoachId);
   const { exercises, createExercise, updateExercise, deleteExercise } = useExercises(currentCoachId);
   const { logs, createLog, deleteLog } = useLogs(currentCoachId);
   const { attendance, setAttendance: upsertAttendance } = useAttendance(currentCoachId);
@@ -613,6 +613,20 @@ export default function CoachApp() {
                 catch (err) {
                   console.error("log delete failed", err);
                   alert("Failed to delete log: " + err.message);
+                }
+              }}
+              onCompleteWorkout={async (id) => {
+                try { await completeWorkout(id); notify("Session completed"); }
+                catch (err) {
+                  console.error("complete failed", err);
+                  alert("Failed to update session: " + err.message);
+                }
+              }}
+              onUncompleteWorkout={async (id) => {
+                try { await uncompleteWorkout(id); notify("Marked in progress"); }
+                catch (err) {
+                  console.error("uncomplete failed", err);
+                  alert("Failed to update session: " + err.message);
                 }
               }}
             />
@@ -1865,10 +1879,11 @@ function TodaySessionCard({ workout, clients, logs, attendance, onOpen }) {
   const c = clients.find(cl => cl.id === workout.clientId);
   const workoutLogs = logs.filter(l => l.workoutId === workout.id);
   const att = attendance.find(a => a.workoutId === workout.id);
-  const completed = workoutLogs.length > 0;
+  const isCompleted = !!workout.completedAt;
+  const isInProgress = !isCompleted && workoutLogs.length > 0;
   return (
     <button onClick={() => c && onOpen(c.id)} className="w-full card p-5 hover-lift text-left"
-      style={{borderColor: completed ? "var(--good)" : "var(--line-2)"}}>
+      style={{borderColor: isCompleted ? "var(--good)" : "var(--line-2)"}}>
       <div className="flex items-center gap-4">
         <div className="w-11 h-11 rounded-full flex items-center justify-center display text-sm font-medium flex-shrink-0"
           style={{background:"var(--paper-2)", border:"1px solid var(--line)"}}>{c ? initials(c.name) : "—"}</div>
@@ -1883,7 +1898,13 @@ function TodaySessionCard({ workout, clients, logs, attendance, onOpen }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {completed ? <div className="chip" style={{background:"#E4F0E8",color:"var(--good)",borderColor:"#BFDCC9"}}><Check size={12}/> In progress</div> : <span className="chip">Ready</span>}
+          {isCompleted ? (
+            <div className="chip" style={{background:"#E4F0E8",color:"var(--good)",borderColor:"#BFDCC9"}}><Check size={12}/> Completed</div>
+          ) : isInProgress ? (
+            <div className="chip" style={{background:"#FFF4E0",color:"var(--warn)",borderColor:"#F0DDB4"}}>In progress</div>
+          ) : (
+            <span className="chip">Ready</span>
+          )}
           <ArrowRight size={16}/>
         </div>
       </div>
@@ -1896,7 +1917,7 @@ function RecentActivity() { return null; } // deprecated — kept as empty stub 
 /* ============================================================
    CLIENT DETAIL
    ============================================================ */
-function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onViewAsClient }) {
+function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onViewAsClient }) {
   const [tab, setTab] = useState("program"); // program | history | profile | progress
   const clientWorkouts = workouts.filter(w => w.clientId === client.id && !w.isTemplate);
   const clientLogs = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId));
@@ -1944,7 +1965,8 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
         {tab === "program" && (
           <ProgramTab client={client} clientWorkouts={clientWorkouts} exercises={exercises} workouts={workouts}
             logs={logs} attendance={attendance} unitPref={unitPref}
-            onBuild={onBuild} onApplyTemplate={onApplyTemplate} onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog}/>
+            onBuild={onBuild} onApplyTemplate={onApplyTemplate} onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog}
+            onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout}/>
         )}
         {tab === "history" && (
           <HistoryTab client={client} clientWorkouts={clientWorkouts} exercises={exercises} logs={logs} attendance={attendance} unitPref={unitPref}/>
@@ -1996,7 +2018,7 @@ function ClientHeader({ client, unitPref = "lb" }) {
 }
 
 /* -----------------------------  PROGRAM TAB  ----------------------------- */
-function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attendance, unitPref = "lb", onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog }) {
+function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attendance, unitPref = "lb", onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout }) {
   const t = today();
   const upcoming = clientWorkouts.filter(w => w.date >= t).sort((a,b) => a.date.localeCompare(b.date));
   const past = clientWorkouts.filter(w => w.date < t).sort((a,b) => b.date.localeCompare(a.date));
@@ -2023,7 +2045,8 @@ function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attenda
           {upcoming.map(w => (
             <WorkoutRow key={w.id} workout={w} exercises={exercises} logs={logs} attendance={attendance} client={client} unitPref={unitPref}
               open={openId === w.id} onToggle={() => setOpenId(openId === w.id ? null : w.id)}
-              onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}/>
+              onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}
+              onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout}/>
           ))}
           {past.length > 0 && (
             <>
@@ -2031,7 +2054,8 @@ function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attenda
               {past.slice(0, 10).map(w => (
                 <WorkoutRow key={w.id} workout={w} exercises={exercises} logs={logs} attendance={attendance} client={client} unitPref={unitPref}
                   open={openId === w.id} onToggle={() => setOpenId(openId === w.id ? null : w.id)}
-                  onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})} past/>
+                  onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}
+                  onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} past/>
               ))}
             </>
           )}
@@ -2132,7 +2156,7 @@ function TemplatePickerModal({ templates, exercises, onClose, onApply }) {
   );
 }
 
-function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "lb", open, onToggle, onLog, onAttendance, onDeleteLog, onEdit, past }) {
+function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "lb", open, onToggle, onLog, onAttendance, onDeleteLog, onEdit, onCompleteWorkout, onUncompleteWorkout, past }) {
   const workoutLogs = logs.filter(l => l.workoutId === workout.id);
   const att = attendance.find(a => a.workoutId === workout.id);
   return (
@@ -2183,6 +2207,26 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
               );
             })}
           </div>
+          {workout.completedAt ? (
+            <div className="mt-4 flex justify-center">
+              <button
+                className="text-xs underline"
+                style={{color:"var(--muted)"}}
+                onClick={async () => { await onUncompleteWorkout(workout.id); }}>
+                Mark as in progress
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-primary w-full mt-4"
+              onClick={async () => {
+                if (window.confirm("Mark this session complete?")) {
+                  await onCompleteWorkout(workout.id);
+                }
+              }}>
+              <Check size={14}/> Complete session
+            </button>
+          )}
         </div>
       )}
     </div>
