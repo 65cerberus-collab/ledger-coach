@@ -853,7 +853,7 @@ function TopBar({ coaches, currentCoach, onSwitch, onAddProfile, onArchive, onRe
                 </>
               )}
               {/* UI-only cap. DB enforcement deferred to Phase 5 (payment gating). */}
-              {coaches.length < 5 && (
+              {activeCoaches.length < 5 && (
                 <>
                   <div className="divider mx-2"/>
                   <button onClick={() => { onAddProfile(); setOpen(false); }}
