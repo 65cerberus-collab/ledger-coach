@@ -505,6 +505,8 @@ If a user already has localStorage data on the device they're signing up on, tha
 
 ## 9. Phased rollout
 
+> **Status (2026-05-09):** Phases 0–3 complete. Phase 3 shipped with significant architectural divergence from this plan; see the "Phase 3 actual outcome" appendix at the end of this document for what shipped, what deferred, and why.
+
 ### Phase 0 — Canonical units flip to lb/in
 
 **Goal:** Pre-Phase-1 change so localStorage canonical matches Supabase canonical.
@@ -624,6 +626,44 @@ These need answers before the relevant phase starts.
 3. **Test strategy.** **Decision: Phase 2.5 builds a test harness focused on storage, sync, conversion helpers, and migration logic. UI testing deferred.**
 4. **Seed exercise updates.** When new seed exercises are added in a future app version, server-side migration scripts insert the new shared rows. **Confirmed.**
 5. **GDPR / account deletion.** "Download all my data" and "delete my account" buttons. **Out of scope for migration; tracked as a future-phase requirement.**
+
+---
+
+## Phase 3 actual outcome — appendix
+
+### What shipped
+
+- All 9 entity hooks (coaches, clients, exercises, workouts, workout_blocks via nested writes, logs, attendance, measurements, client_notes), reads + writes via Supabase.
+- 25 schema migrations (001–025) with RLS active on all tables.
+- Auth: email/password via Supabase Auth.
+- Multi-profile per account (architectural pivot — see below).
+- Vercel auto-deploy to production from `supabase-migration`.
+- Workouts migration sub-phases: W-1 reads, E-1 `useExercises` prerequisite, W-2a writes, W-3 logs+attendance, W-4 completion UI.
+- Phase 3 close-out cleanup: vestigial localStorage reads/writes removed; only `coach:version` sentinel remains.
+
+### Architectural pivots from plan
+
+1. **Multi-profile per account replaced single-coach-per-account (plan §3.1).** Migration 022 dropped the `user_id` UNIQUE constraint on `coaches` and added a `(user_id, name)` composite. Rationale: the same user juggles distinct coaching contexts and didn't want sign-out/sign-in friction. Future payment gating will need to account for this (per-seat or per-account TBD).
+2. **Online-first architecture replaced offline-first sync model (plan §6).** Hooks call Supabase directly; no `syncService.js`, no dirty queue, no offline write buffering. Rationale: complexity not justified by the use case (iPad with WiFi); true offline support deferred to a future phase.
+3. **`storageService.js` as a centralized abstraction (plan §1) not built.** Per-hook Supabase calls instead. Rationale: a single abstraction layer didn't earn its keep when each hook needed entity-specific logic anyway.
+
+### Deferred to future phases
+
+- `syncService.js` with dirty queue (plan §6.3 architecture).
+- Visual sync indicator in TopBar.
+- Conflict resolution per plan §7 (LWW + log/measurement append-only rules) — currently writes are direct upserts without `updated_at` checks.
+- Phase 2.5 test harness (Vitest, sync logic tests) — not built; tests deferred to a future hardening pass.
+- Password reset UI and magic-link auth — only email/password shipped.
+- Phase 0 unit flip (kg→lb canonical localStorage migration) — skipped; Supabase columns are lb/in canonical and conversion happens at hook boundaries.
+- Bulk-import of legacy localStorage data — skipped deliberately (W-2b in the workouts migration plan); both active users were informed of dev-phase data loss.
+
+### Plan items still relevant for Phase 4+
+
+- Multi-coach-per-client via `client_collaborators` table (plan §3.6) — schema accommodates it.
+- Template marketplace via `workouts.visibility` (plan §3.6) — column already in schema.
+- Phase 4: payment gating with Stripe.
+- SMTP cleanup (plan §10 open question 1) — currently using Supabase built-in, rate-limited, not production-ready.
+- Account deletion / GDPR data export (plan §10 open question 5) — still out of scope, tracked for future.
 
 ---
 

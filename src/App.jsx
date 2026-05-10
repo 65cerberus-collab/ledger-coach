@@ -280,7 +280,6 @@ export default function CoachApp() {
   }, [coaches, currentCoachId, updateLastUsed]);
 
   // ── Coach-scoped views — each coach only sees their own ──
-  // Clients are read from Supabase; writes still go to localStorage this step.
   const { clients: dbClients, createClient, updateClient } = useClients(currentCoachId);
   const clients = useMemo(
     () => dbClients.map(c => ({
