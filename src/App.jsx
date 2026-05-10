@@ -2132,6 +2132,8 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
   const [showDetails, setShowDetails] = useState(false);
   const unit = log.unit || block?.unit || "lb";
   const actualW = log.actualWeight != null ? toDisplay(log.actualWeight, unit) : null;
+  const workType = block?.work_type || "reps";
+  const isTime = workType === "time";
 
   return (
     <div className="rounded-xl p-4 grow-in" style={{background:"#fff", border:"1px solid var(--good)"}}>
@@ -2143,11 +2145,17 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-[15px]">{ex.name}</span>
             <SideChip side={block?.side}/>
+            <WorkTypeChip workType={workType}/>
             {log.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
           </div>
           <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
             {log.mode === "modified" && log.perSet ? (
-              log.perSet.map(s => `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`).join(" · ")
+              log.perSet.map(s => isTime
+                ? `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.actualSeconds ?? s.duration ?? "—"}s`
+                : `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`
+              ).join(" · ")
+            ) : isTime ? (
+              `${log.actualSets ?? block.sets} × ${log.actualReps ?? (block.durationSeconds ?? "—")}s hold${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
             ) : (
               `${log.actualSets ?? block.sets} × ${log.actualReps ?? block.reps}${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
             )}
@@ -2166,8 +2174,11 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
 function LogCard({ block, ex, onLog }) {
   const unit = block.unit || "lb";
   const isAlt = block.side === "alternating";
+  const workType = block.work_type || "reps";
+  const isTime = workType === "time";
   const [actualSets, setActualSets] = useState(block.sets);
   const [actualReps, setActualReps] = useState(block.reps);
+  const [actualSeconds, setActualSeconds] = useState(block.durationSeconds ?? "");
   const [actualWeight, setActualWeight] = useState(block.weight != null ? toDisplay(block.weight, unit) : "");
   const [modified, setModified] = useState(false);
   const [perSet, setPerSet] = useState([]);
@@ -2179,7 +2190,9 @@ function LogCard({ block, ex, onLog }) {
       const rows = [];
       const nSets = Number(block.sets) || 1;
       for (let i = 0; i < nSets; i++) {
-        const row = { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
+        const row = isTime
+          ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
+          : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
         if (isAlt) row.side = i % 2 === 0 ? "left" : "right";
         rows.push(row);
       }
@@ -2191,7 +2204,9 @@ function LogCard({ block, ex, onLog }) {
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
   const flipSide = (i) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, side: s.side === "left" ? "right" : "left"} : s));
   const addRow = () => {
-    const row = { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
+    const row = isTime
+      ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
+      : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
     if (isAlt) row.side = perSet.length % 2 === 0 ? "left" : "right";
     setPerSet([...perSet, row]);
   };
@@ -2206,7 +2221,9 @@ function LogCard({ block, ex, onLog }) {
         actualReps: null,
         actualWeight: null,
         perSet: perSet.map(s => {
-          const out = { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
+          const out = isTime
+            ? { actualSeconds: s.actualSeconds, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
+            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
           if (s.side) out.side = s.side;
           return out;
         }),
@@ -2219,7 +2236,7 @@ function LogCard({ block, ex, onLog }) {
         completed: true,
         mode: "asPlanned",
         actualSets: Number(actualSets) || block.sets,
-        actualReps: actualReps,
+        actualReps: isTime ? (actualSeconds === "" ? null : actualSeconds) : actualReps,
         actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
         perSet: null,
         notes,
@@ -2239,9 +2256,12 @@ function LogCard({ block, ex, onLog }) {
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-[15px]">{ex.name}</span>
             <SideChip side={block.side}/>
+            <WorkTypeChip workType={workType}/>
           </div>
           <div className="text-[11px] mono uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--muted)"}}>
-            planned: {block.sets} × {block.reps}{plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · {block.rest}s rest
+            {isTime
+              ? `planned: ${block.sets} × ${block.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`
+              : `planned: ${block.sets} × ${block.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`}
           </div>
           {block.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{block.notes}</div>}
         </div>
@@ -2253,10 +2273,17 @@ function LogCard({ block, ex, onLog }) {
             <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Sets</label>
             <input type="text" inputMode="numeric" value={actualSets} onChange={e => setActualSets(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
           </div>
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
-            <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
+          {isTime ? (
+            <div>
+              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Duration (s)</label>
+              <input type="text" inputMode="numeric" value={actualSeconds} onChange={e => setActualSeconds(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+            </div>
+          ) : (
+            <div>
+              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
+              <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+            </div>
+          )}
           <div>
             <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Weight ({unitLabel(unit)})</label>
             <input type="text" inputMode="decimal" value={actualWeight} onChange={e => setActualWeight(filterNumericInput(e.target.value))} placeholder="—" className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
@@ -2275,8 +2302,13 @@ function LogCard({ block, ex, onLog }) {
                   {s.side === "right" ? "Right" : "Left"}
                 </button>
               )}
-              <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+              {isTime ? (
+                <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
+                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+              ) : (
+                <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
+                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+              )}
               <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={`${unitLabel(unit)}`}
                 className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
               <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
@@ -2308,13 +2340,23 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
   const totalExercises = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId)).length;
   const attendedCount = attendance.filter(a => a.status === "present" && clientWorkouts.some(w => w.id === a.workoutId)).length;
 
-  // Volume calculation — uses actualWeight * actualSets * actualReps, or per-set sum if modified
-  const volumeFor = (log) => {
+  // Volume calculation — uses actualWeight * actualSets * actualReps, or per-set sum if modified.
+  // For time-based blocks, weight defaults to 1 so an unweighted hold still contributes
+  // its time-under-tension to volume.
+  const volumeFor = (log, block) => {
+    const isTime = block?.work_type === "time";
     if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0), 0);
+      return log.perSet.reduce((acc, s) => isTime
+        ? acc + (parseInt(s.actualSeconds) || 0) * (parseFloat(s.weight) || 1)
+        : acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0)
+      , 0);
     }
     const sets = Number(log.actualSets) || 0;
     const reps = parseInt(log.actualReps) || 0;
+    if (isTime) {
+      const wt = parseFloat(log.actualWeight) || 1;
+      return sets * reps * wt;
+    }
     const wt = Number(log.actualWeight) || 0;
     return sets * reps * wt;
   };
@@ -2335,7 +2377,7 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
             const att = attendance.find(a => a.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l, w.blocks.find(b => b.exId === l.exId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
             return (
               <div key={w.id} className="card p-4 hover-lift flex items-center gap-4">
@@ -3055,7 +3097,7 @@ function TemplateCard({ tpl, exercises, onEdit, onDelete, onAssign }) {
             <div key={i} className="flex items-center gap-2 text-[12px]">
               <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
               <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
-              <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.reps}</span>
+              <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.reps}</span>
             </div>
           );
         })}
@@ -3669,10 +3711,12 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
   if (!ex) return null;
   const unit = block.unit || "lb";
   const side = block.side || "bilateral";
+  const workType = block.work_type || "reps";
   // Changing the unit toggle only changes the display unit — the canonical lb
   // weight is preserved, so flipping lb ↔ kg shows the same load in the new unit.
   const setUnit = (u) => onUpdate({ unit: u });
   const setSide = (s) => onUpdate({ side: s });
+  const setWorkType = (w) => onUpdate({ work_type: w });
   return (
     <div className="card p-4 grow-in">
       <div className="flex items-start gap-3">
@@ -3695,10 +3739,15 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
               <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={14}/></button>
             </div>
           </div>
+          <WorkTypeToggle workType={workType} onChange={setWorkType}/>
           <SideToggle side={side} onChange={setSide}/>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
             <NumericField label="Sets" value={block.sets} onChange={n => onUpdate({sets: n})} integer mini/>
-            <MiniField label="Reps" value={block.reps} onChange={v => onUpdate({reps: v})}/>
+            {workType === "time" ? (
+              <NumericField label="Duration (s)" value={block.durationSeconds} onChange={n => onUpdate({durationSeconds: n})} integer mini/>
+            ) : (
+              <MiniField label="Reps" value={block.reps} onChange={v => onUpdate({reps: v})}/>
+            )}
             <NumericField label={`Weight (${unitLabel(unit)})`} value={block.weight != null ? toDisplay(block.weight, unit) : null}
               onChange={n => onUpdate({weight: n == null ? null : fromDisplay(n, unit)})} placeholder="—" mini/>
             <NumericField label="Rest (s)" value={block.rest} onChange={n => onUpdate({rest: n})} integer mini/>
@@ -3757,6 +3806,37 @@ function SideChip({ side }) {
   return (
     <span className="chip" style={{fontSize:"10px", padding:"2px 8px", background:"var(--paper-2)", color:"var(--ink-2)", borderColor:"var(--line-2)"}}>
       {label}
+    </span>
+  );
+}
+
+const WORK_TYPE_OPTIONS = [
+  { value: "reps", label: "Reps" },
+  { value: "time", label: "Time" },
+];
+
+function WorkTypeToggle({ workType, onChange }) {
+  return (
+    <div className="flex gap-0.5 p-0.5 rounded-lg w-full mt-2" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+      {WORK_TYPE_OPTIONS.map(o => (
+        <button key={o.value} onClick={() => onChange(o.value)}
+          type="button"
+          className="flex-1 px-2 py-1 rounded text-[10px] font-medium mono uppercase tracking-wide"
+          style={workType === o.value
+            ? {background:"var(--ink)", color:"var(--paper)"}
+            : {background:"transparent", color:"var(--muted)"}}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorkTypeChip({ workType }) {
+  if (workType !== "time") return null;
+  return (
+    <span className="chip" style={{fontSize:"10px", padding:"2px 8px", background:"var(--paper-2)", color:"var(--ink-2)", borderColor:"var(--line-2)"}}>
+      Hold
     </span>
   );
 }
@@ -4000,6 +4080,7 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
                 if (!ex) return null;
                 const bUnit = b.unit || "lb";
                 const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                const isTime = b.work_type === "time";
                 return (
                   <div key={i} className="flex items-center gap-3 p-3 rounded-lg" style={{background:"var(--paper)"}}>
                     <span className="display text-sm tabular" style={{color:"var(--muted)", width:"22px"}}>{String(i+1).padStart(2,'0')}</span>
@@ -4009,7 +4090,7 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
                     </div>
                     <div className="text-right">
                       <div className="display text-base tabular">
-                        {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{b.reps}
+                        {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{isTime ? `${b.durationSeconds ?? "—"}s` : b.reps}
                         {plannedW != null && <span className="text-xs ml-1" style={{color:"var(--muted)"}}>@ {plannedW}{unitLabel(bUnit)}</span>}
                       </div>
                       <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{b.rest}s rest</div>
@@ -4062,12 +4143,22 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
 function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
   const [openId, setOpenId] = useState(null);
 
-  const volumeFor = (log) => {
+  // For time-based blocks, weight defaults to 1 so an unweighted hold still contributes
+  // its time-under-tension to volume.
+  const volumeFor = (log, block) => {
+    const isTime = block?.work_type === "time";
     if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0), 0);
+      return log.perSet.reduce((acc, s) => isTime
+        ? acc + (parseInt(s.actualSeconds) || 0) * (parseFloat(s.weight) || 1)
+        : acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0)
+      , 0);
     }
     const sets = Number(log.actualSets) || 0;
     const reps = parseInt(log.actualReps) || 0;
+    if (isTime) {
+      const wt = parseFloat(log.actualWeight) || 1;
+      return sets * reps * wt;
+    }
     const wt = Number(log.actualWeight) || 0;
     return sets * reps * wt;
   };
@@ -4087,7 +4178,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
         <div className="space-y-2">
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l, w.blocks.find(b => b.exId === l.exId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
             const isOpen = openId === w.id;
             return (
@@ -4124,6 +4215,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                         const bUnit = b.unit || "lb";
                         const logUnit = log?.unit || bUnit;
                         const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                        const isTime = b.work_type === "time";
                         return (
                           <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
                             <div className="flex items-start gap-2.5 mb-2">
@@ -4131,10 +4223,13 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium">{ex.name}</span>
+                                  <WorkTypeChip workType={b.work_type}/>
                                   {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
                                 </div>
                                 <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
-                                  planned {b.sets}×{b.reps}{plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · {b.rest}s rest
+                                  {isTime
+                                    ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                    : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
                                 </div>
                                 {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                               </div>
@@ -4147,7 +4242,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                                       <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
                                       <div className="text-[13px] font-medium">
                                         {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
-                                        {s.reps}
+                                        {isTime ? `${s.actualSeconds ?? s.duration ?? "—"}s` : s.reps}
                                       </div>
                                     </div>
                                   ))}
@@ -4155,7 +4250,9 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                               ) : (
                                 <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
                                   <span className="text-[13px] font-medium">
-                                    {log.actualSets ?? b.sets} × {log.actualReps ?? b.reps}
+                                    {isTime
+                                      ? `${log.actualSets ?? b.sets} × ${log.actualReps ?? (b.durationSeconds ?? "—")}s hold`
+                                      : `${log.actualSets ?? b.sets} × ${log.actualReps ?? b.reps}`}
                                     {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
                                   </span>
                                   {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
@@ -4297,6 +4394,8 @@ function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
   if (blockLog) {
     const unit = blockLog.unit || block.unit || "lb";
     const actualW = blockLog.actualWeight != null ? toDisplay(blockLog.actualWeight, unit) : null;
+    const workType = block.work_type || "reps";
+    const isTime = workType === "time";
     return (
       <div className="card p-4 grow-in" style={{borderColor: "var(--good)"}}>
         <div className="flex items-start gap-3">
@@ -4307,11 +4406,17 @@ function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-[14px]">{ex.name}</span>
               <SideChip side={block.side}/>
+              <WorkTypeChip workType={workType}/>
               {blockLog.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
             </div>
             <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
               {blockLog.mode === "modified" && blockLog.perSet ? (
-                blockLog.perSet.map(s => `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`).join(" · ")
+                blockLog.perSet.map(s => isTime
+                  ? `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.actualSeconds ?? s.duration ?? "—"}s`
+                  : `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`
+                ).join(" · ")
+              ) : isTime ? (
+                `${blockLog.actualSets ?? block.sets} × ${blockLog.actualReps ?? (block.durationSeconds ?? "—")}s hold${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
               ) : (
                 `${blockLog.actualSets ?? block.sets} × ${blockLog.actualReps ?? block.reps}${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
               )}
@@ -4331,8 +4436,11 @@ function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
 function ClientLogCard({ block, ex, onLog, onRemove }) {
   const unit = block.unit || "lb";
   const isAlt = block.side === "alternating";
+  const workType = block.work_type || "reps";
+  const isTime = workType === "time";
   const [actualSets, setActualSets] = useState(block.sets);
   const [actualReps, setActualReps] = useState(block.reps);
+  const [actualSeconds, setActualSeconds] = useState(block.durationSeconds ?? "");
   const [actualWeight, setActualWeight] = useState("");
   const [modified, setModified] = useState(false);
   const [perSet, setPerSet] = useState([]);
@@ -4343,7 +4451,9 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
       const rows = [];
       const nSets = Number(block.sets) || 1;
       for (let i = 0; i < nSets; i++) {
-        const row = { reps: block.reps, weight: "" };
+        const row = isTime
+          ? { duration: block.durationSeconds, actualSeconds: "", weight: "" }
+          : { reps: block.reps, weight: "" };
         if (isAlt) row.side = i % 2 === 0 ? "left" : "right";
         rows.push(row);
       }
@@ -4354,7 +4464,9 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
   const flipSide = (i) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, side: s.side === "left" ? "right" : "left"} : s));
   const addRow = () => {
-    const row = { reps: block.reps, weight: "" };
+    const row = isTime
+      ? { duration: block.durationSeconds, actualSeconds: "", weight: "" }
+      : { reps: block.reps, weight: "" };
     if (isAlt) row.side = perSet.length % 2 === 0 ? "left" : "right";
     setPerSet([...perSet, row]);
   };
@@ -4366,7 +4478,9 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
         completed: true, mode: "modified",
         actualSets: perSet.length, actualReps: null, actualWeight: null,
         perSet: perSet.map(s => {
-          const out = { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
+          const out = isTime
+            ? { actualSeconds: s.actualSeconds, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
+            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
           if (s.side) out.side = s.side;
           return out;
         }),
@@ -4376,7 +4490,8 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
       onLog({
         completed: true, mode: "asPlanned",
         actualSets: Number(actualSets) || block.sets,
-        actualReps, actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
+        actualReps: isTime ? (actualSeconds === "" ? null : actualSeconds) : actualReps,
+        actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
         perSet: null, notes, source: "client", unit,
       });
     }
@@ -4391,9 +4506,10 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[14px] font-medium">{ex.name}</span>
               <SideChip side={block.side}/>
+              <WorkTypeChip workType={workType}/>
             </div>
             <div className="mono text-[10px] uppercase tracking-wider mt-0.5" style={{color:"var(--muted)"}}>
-              target {block.sets}×{block.reps}
+              {isTime ? `target ${block.sets}×${block.durationSeconds ?? "—"}s hold` : `target ${block.sets}×${block.reps}`}
             </div>
           </div>
         </div>
@@ -4406,10 +4522,17 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
             <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Sets</label>
             <input type="text" inputMode="numeric" value={actualSets} onChange={e => setActualSets(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
           </div>
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
-            <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
+          {isTime ? (
+            <div>
+              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Duration (s)</label>
+              <input type="text" inputMode="numeric" value={actualSeconds} onChange={e => setActualSeconds(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+            </div>
+          ) : (
+            <div>
+              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
+              <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+            </div>
+          )}
           <div>
             <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Weight ({unitLabel(unit)})</label>
             <input type="text" inputMode="decimal" value={actualWeight} onChange={e => setActualWeight(filterNumericInput(e.target.value))} placeholder="—" className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
@@ -4428,8 +4551,13 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
                   {s.side === "right" ? "Right" : "Left"}
                 </button>
               )}
-              <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+              {isTime ? (
+                <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
+                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+              ) : (
+                <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
+                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+              )}
               <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={unitLabel(unit)}
                 className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
               <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
