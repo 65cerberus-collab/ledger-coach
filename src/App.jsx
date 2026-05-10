@@ -2142,6 +2142,7 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-[15px]">{ex.name}</span>
+            <SideChip side={block?.side}/>
             {log.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
           </div>
           <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
@@ -2164,6 +2165,7 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
 /** Pre-filled log card — one-tap "Mark done" with optional Modified expansion */
 function LogCard({ block, ex, onLog }) {
   const unit = block.unit || "lb";
+  const isAlt = block.side === "alternating";
   const [actualSets, setActualSets] = useState(block.sets);
   const [actualReps, setActualReps] = useState(block.reps);
   const [actualWeight, setActualWeight] = useState(block.weight != null ? toDisplay(block.weight, unit) : "");
@@ -2177,7 +2179,9 @@ function LogCard({ block, ex, onLog }) {
       const rows = [];
       const nSets = Number(block.sets) || 1;
       for (let i = 0; i < nSets; i++) {
-        rows.push({ reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" });
+        const row = { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
+        if (isAlt) row.side = i % 2 === 0 ? "left" : "right";
+        rows.push(row);
       }
       setPerSet(rows);
     }
@@ -2185,7 +2189,12 @@ function LogCard({ block, ex, onLog }) {
   };
 
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const addRow = () => setPerSet([...perSet, { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" }]);
+  const flipSide = (i) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, side: s.side === "left" ? "right" : "left"} : s));
+  const addRow = () => {
+    const row = { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
+    if (isAlt) row.side = perSet.length % 2 === 0 ? "left" : "right";
+    setPerSet([...perSet, row]);
+  };
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
 
   const markDone = () => {
@@ -2196,7 +2205,11 @@ function LogCard({ block, ex, onLog }) {
         actualSets: perSet.length,
         actualReps: null,
         actualWeight: null,
-        perSet: perSet.map(s => ({ reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) })),
+        perSet: perSet.map(s => {
+          const out = { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
+          if (s.side) out.side = s.side;
+          return out;
+        }),
         notes,
         source: "coach",
         unit,
@@ -2223,7 +2236,10 @@ function LogCard({ block, ex, onLog }) {
       <div className="flex items-start gap-3 mb-3">
         <span className={`dot mt-1.5 ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-[15px]">{ex.name}</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-[15px]">{ex.name}</span>
+            <SideChip side={block.side}/>
+          </div>
           <div className="text-[11px] mono uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--muted)"}}>
             planned: {block.sets} × {block.reps}{plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · {block.rest}s rest
           </div>
@@ -2251,6 +2267,14 @@ function LogCard({ block, ex, onLog }) {
           {perSet.map((s, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
+              {isAlt && (
+                <button onClick={() => flipSide(i)} type="button"
+                  className="mono text-[10px] uppercase tracking-wide rounded px-2 py-1"
+                  title="Tap to flip side"
+                  style={{background:"var(--paper-2)", color:"var(--ink-2)", border:"1px solid var(--line-2)", minWidth:"54px"}}>
+                  {s.side === "right" ? "Right" : "Left"}
+                </button>
+              )}
               <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
                 className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
               <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={`${unitLabel(unit)}`}
@@ -3644,9 +3668,11 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
 function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, canMoveDown }) {
   if (!ex) return null;
   const unit = block.unit || "lb";
+  const side = block.side || "bilateral";
   // Changing the unit toggle only changes the display unit — the canonical lb
   // weight is preserved, so flipping lb ↔ kg shows the same load in the new unit.
   const setUnit = (u) => onUpdate({ unit: u });
+  const setSide = (s) => onUpdate({ side: s });
   return (
     <div className="card p-4 grow-in">
       <div className="flex items-start gap-3">
@@ -3669,6 +3695,7 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
               <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={14}/></button>
             </div>
           </div>
+          <SideToggle side={side} onChange={setSide}/>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
             <NumericField label="Sets" value={block.sets} onChange={n => onUpdate({sets: n})} integer mini/>
             <MiniField label="Reps" value={block.reps} onChange={v => onUpdate({reps: v})}/>
@@ -3697,6 +3724,40 @@ function UnitToggle({ unit, onChange }) {
         </button>
       ))}
     </div>
+  );
+}
+
+const SIDE_OPTIONS = [
+  { value: "bilateral",   label: "Bilateral" },
+  { value: "left",        label: "Left" },
+  { value: "right",       label: "Right" },
+  { value: "alternating", label: "Alt" },
+];
+
+function SideToggle({ side, onChange }) {
+  return (
+    <div className="flex gap-0.5 p-0.5 rounded-lg w-full mt-2" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+      {SIDE_OPTIONS.map(o => (
+        <button key={o.value} onClick={() => onChange(o.value)}
+          type="button"
+          className="flex-1 px-2 py-1 rounded text-[10px] font-medium mono uppercase tracking-wide"
+          style={side === o.value
+            ? {background:"var(--ink)", color:"var(--paper)"}
+            : {background:"transparent", color:"var(--muted)"}}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SideChip({ side }) {
+  if (!side || side === "bilateral") return null;
+  const label = side === "alternating" ? "Alt" : side[0].toUpperCase() + side.slice(1);
+  return (
+    <span className="chip" style={{fontSize:"10px", padding:"2px 8px", background:"var(--paper-2)", color:"var(--ink-2)", borderColor:"var(--line-2)"}}>
+      {label}
+    </span>
   );
 }
 
@@ -4245,6 +4306,7 @@ function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-medium text-[14px]">{ex.name}</span>
+              <SideChip side={block.side}/>
               {blockLog.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
             </div>
             <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
@@ -4268,6 +4330,7 @@ function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
 
 function ClientLogCard({ block, ex, onLog, onRemove }) {
   const unit = block.unit || "lb";
+  const isAlt = block.side === "alternating";
   const [actualSets, setActualSets] = useState(block.sets);
   const [actualReps, setActualReps] = useState(block.reps);
   const [actualWeight, setActualWeight] = useState("");
@@ -4279,13 +4342,22 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
     if (!modified) {
       const rows = [];
       const nSets = Number(block.sets) || 1;
-      for (let i = 0; i < nSets; i++) rows.push({ reps: block.reps, weight: "" });
+      for (let i = 0; i < nSets; i++) {
+        const row = { reps: block.reps, weight: "" };
+        if (isAlt) row.side = i % 2 === 0 ? "left" : "right";
+        rows.push(row);
+      }
       setPerSet(rows);
     }
     setModified(!modified);
   };
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const addRow = () => setPerSet([...perSet, { reps: block.reps, weight: "" }]);
+  const flipSide = (i) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, side: s.side === "left" ? "right" : "left"} : s));
+  const addRow = () => {
+    const row = { reps: block.reps, weight: "" };
+    if (isAlt) row.side = perSet.length % 2 === 0 ? "left" : "right";
+    setPerSet([...perSet, row]);
+  };
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
 
   const markDone = () => {
@@ -4293,7 +4365,11 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
       onLog({
         completed: true, mode: "modified",
         actualSets: perSet.length, actualReps: null, actualWeight: null,
-        perSet: perSet.map(s => ({ reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) })),
+        perSet: perSet.map(s => {
+          const out = { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
+          if (s.side) out.side = s.side;
+          return out;
+        }),
         notes, source: "client", unit,
       });
     } else {
@@ -4312,7 +4388,10 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
         <div className="flex items-start gap-2.5">
           <span className={`dot mt-1.5 ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
           <div>
-            <div className="text-[14px] font-medium">{ex.name}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[14px] font-medium">{ex.name}</span>
+              <SideChip side={block.side}/>
+            </div>
             <div className="mono text-[10px] uppercase tracking-wider mt-0.5" style={{color:"var(--muted)"}}>
               target {block.sets}×{block.reps}
             </div>
@@ -4341,6 +4420,14 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
           {perSet.map((s, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
+              {isAlt && (
+                <button onClick={() => flipSide(i)} type="button"
+                  className="mono text-[10px] uppercase tracking-wide rounded px-2 py-1"
+                  title="Tap to flip side"
+                  style={{background:"var(--paper-2)", color:"var(--ink-2)", border:"1px solid var(--line-2)", minWidth:"54px"}}>
+                  {s.side === "right" ? "Right" : "Left"}
+                </button>
+              )}
               <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
                 className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
               <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={unitLabel(unit)}
