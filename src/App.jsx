@@ -3097,7 +3097,7 @@ function TemplateCard({ tpl, exercises, onEdit, onDelete, onAssign }) {
             <div key={i} className="flex items-center gap-2 text-[12px]">
               <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
               <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
-              <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.reps}</span>
+              <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.reps}</span>
             </div>
           );
         })}
@@ -4080,6 +4080,7 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
                 if (!ex) return null;
                 const bUnit = b.unit || "lb";
                 const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                const isTime = b.work_type === "time";
                 return (
                   <div key={i} className="flex items-center gap-3 p-3 rounded-lg" style={{background:"var(--paper)"}}>
                     <span className="display text-sm tabular" style={{color:"var(--muted)", width:"22px"}}>{String(i+1).padStart(2,'0')}</span>
@@ -4089,7 +4090,7 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
                     </div>
                     <div className="text-right">
                       <div className="display text-base tabular">
-                        {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{b.reps}
+                        {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{isTime ? `${b.durationSeconds ?? "—"}s` : b.reps}
                         {plannedW != null && <span className="text-xs ml-1" style={{color:"var(--muted)"}}>@ {plannedW}{unitLabel(bUnit)}</span>}
                       </div>
                       <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{b.rest}s rest</div>
@@ -4214,6 +4215,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                         const bUnit = b.unit || "lb";
                         const logUnit = log?.unit || bUnit;
                         const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                        const isTime = b.work_type === "time";
                         return (
                           <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
                             <div className="flex items-start gap-2.5 mb-2">
@@ -4221,10 +4223,13 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium">{ex.name}</span>
+                                  <WorkTypeChip workType={b.work_type}/>
                                   {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
                                 </div>
                                 <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
-                                  planned {b.sets}×{b.reps}{plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · {b.rest}s rest
+                                  {isTime
+                                    ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                    : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
                                 </div>
                                 {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                               </div>
@@ -4237,7 +4242,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                                       <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
                                       <div className="text-[13px] font-medium">
                                         {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
-                                        {s.reps}
+                                        {isTime ? `${s.actualSeconds ?? s.duration ?? "—"}s` : s.reps}
                                       </div>
                                     </div>
                                   ))}
@@ -4245,7 +4250,9 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                               ) : (
                                 <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
                                   <span className="text-[13px] font-medium">
-                                    {log.actualSets ?? b.sets} × {log.actualReps ?? b.reps}
+                                    {isTime
+                                      ? `${log.actualSets ?? b.sets} × ${log.actualReps ?? (b.durationSeconds ?? "—")}s hold`
+                                      : `${log.actualSets ?? b.sets} × ${log.actualReps ?? b.reps}`}
                                     {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
                                   </span>
                                   {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
