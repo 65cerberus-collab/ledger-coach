@@ -238,8 +238,6 @@ export default function CoachApp() {
 
   const [loaded, setLoaded] = useState(false);
   const [currentCoachId, setCurrentCoachId] = useState(null);
-  const [allClients, setAllClients] = useState([]);
-  const [allWorkouts, setAllWorkouts] = useState([]); // { id, coachId, name, clientId?, date?, isTemplate, blocks }
   const [archivePending, setArchivePending] = useState(null); // { coach, activeClients } when modal is open
   const [isAddProfileOpen, setIsAddProfileOpen] = useState(false);
   // unitPref is now a constant — per-block unit overrides live on each block/log.
@@ -256,119 +254,18 @@ export default function CoachApp() {
     (async () => {
       const version = await load("coach:version", 0);
       const stale = version < SCHEMA_VERSION;
-
-      const [coachList, curCoach, c, w, legacyUnitPref] = await Promise.all([
-        load("coach:coaches", null),
-        load("coach:currentCoachId", null),
-        load("coach:clients", null),
-        load("coach:workouts", null),
-        load("coach:unitPref", null),  // read legacy value for migration only
-      ]);
-
-      // Unit migration seed — for existing blocks/logs that lack a unit field.
-      // If the coach had previously toggled to kg, preserve that. Otherwise default lb.
-      const migrationUnit = legacyUnitPref === "kg" ? "kg" : "lb";
-
-      const coachesInit = coachList || [];
-      // If the persisted current coach is archived (shouldn't happen since we
-      // block archiving the active coach, but just in case after a restore),
-      // fall back to the first non-archived coach.
-      const isCoachActive = (id) => coachesInit.some(c => c.id === id && !c.archived);
-      const firstActive = coachesInit.find(c => !c.archived);
-      const currentInit = (curCoach && isCoachActive(curCoach)) ? curCoach : (firstActive?.id || coachesInit[0]?.id || "coach_alex");
-
-      const clientsInit = c ? c.map(cl => ({ ...cl, coachId: cl.coachId || currentInit })) : SEED_CLIENTS;
-
-      // Workouts: preserve, ensure coachId tagged, add planned weight field, and tag each block with unit
-      const rawWorkouts = w
-        ? w.map(wo => ({
-            ...wo,
-            coachId: wo.coachId || (wo.clientId ? (clientsInit.find(cl => cl.id === wo.clientId)?.coachId || currentInit) : currentInit),
-            blocks: (wo.blocks || []).map(b => ({ weight: null, unit: migrationUnit, ...b }))  // default unit if missing
-          }))
-        : [];
-      // Also ensure seeded demo blocks carry a unit (the seed itself doesn't set one)
-      const workoutsInit = rawWorkouts.map(wo => ({
-        ...wo,
-        blocks: (wo.blocks || []).map(b => ({ unit: "lb", ...b }))
-      }));
-
-      // One-shot kg→lb / cm→in migration. Guarded by version so it runs at most
-      // once per device — on save, version is bumped to 7 and this branch is
-      // skipped on every subsequent load. Pre-v7 data was stored in kg-canonical
-      // (weights) and cm-canonical (lengths); v7 stores lb and inches. Fresh
-      // installs (version=0) land on lb/in seed data and skip the flip.
-      const needsUnitFlip = version > 0 && version < 7;
-      let clientsAfterFlip = clientsInit;
-      let workoutsAfterFlip = workoutsInit;
-      if (needsUnitFlip) {
-        const KG_TO_LB = 2.20462;
-        const CM_PER_INCH = 2.54;
-        const round2 = (n) => Math.round(n * 100) / 100;
-        const kgToLb = (v) => v == null ? v : round2(Number(v) * KG_TO_LB);
-        const cmToIn = (v) => v == null ? v : round2(Number(v) / CM_PER_INCH);
-
-        // Only convert sources that actually came from storage. Seed data
-        // (used when storage was null) is already authored in lb/in canonical.
-        if (w) {
-          workoutsAfterFlip = workoutsInit.map(wo => ({
-            ...wo,
-            blocks: (wo.blocks || []).map(b => ({
-              ...b,
-              weight: b.weight == null ? null : kgToLb(b.weight),
-            })),
-          }));
-        }
-
-        if (c) {
-          clientsAfterFlip = clientsInit.map(cl => {
-            const next = { ...cl };
-            if (Array.isArray(cl.bodyweight)) {
-              next.bodyweight = cl.bodyweight.map(b => {
-                if (b == null || b.kg === undefined) return b;
-                const { kg, ...rest } = b;
-                return { ...rest, lb: kgToLb(kg) };
-              });
-            }
-            if (Array.isArray(cl.measurements)) {
-              next.measurements = cl.measurements.map(m => {
-                if (m == null) return m;
-                const out = { ...m };
-                if (m.valueKg !== undefined) {
-                  out.valueLb = kgToLb(m.valueKg);
-                  delete out.valueKg;
-                }
-                if (m.valueCm !== undefined) {
-                  out.valueIn = cmToIn(m.valueCm);
-                  delete out.valueCm;
-                }
-                return out;
-              });
-            }
-            return next;
-          });
-        }
-      }
-
-      // coaches state now derives from Supabase (see effect below). The
-      // localStorage value (coachList) is still read for currentInit fallback.
-      setCurrentCoachId(currentInit);
-      setAllClients(clientsAfterFlip);
-      setAllWorkouts(workoutsAfterFlip);
-
       if (stale) await save("coach:version", SCHEMA_VERSION);
-      // Legacy unitPref key no longer read on future loads — clear it to keep storage tidy.
-      if (legacyUnitPref !== null) await save("coach:unitPref", null);
       setLoaded(true);
     })();
   }, []);
 
-  // Reconcile currentCoachId against the loaded coaches array. If the persisted
-  // value (from localStorage via setCurrentCoachId initializer earlier) does not
-  // match any coach in the loaded array — for example because the user signed in
-  // as a different auth identity, or because DB-backed coaches replaced seeded
-  // ones — fall back to the first coach. If currentCoachId is already valid, do
-  // nothing (preserves the user's last selection across sessions).
+  // Bootstrap and reconcile currentCoachId against the loaded coaches array.
+  // useCoaches returns coaches sorted by last_used_at DESC, so coaches[0] is
+  // the most recently used profile — the right default on a cold start. If
+  // the current selection later becomes invalid (e.g. the user signed in as a
+  // different auth identity), fall back to coaches[0] as well. If
+  // currentCoachId is already valid, do nothing (preserves the user's
+  // selection across re-renders within the session).
   useEffect(() => {
     if (coaches.length === 0) return;
     const validIds = new Set(coaches.map(c => c.id));
@@ -381,10 +278,6 @@ export default function CoachApp() {
       updateLastUsed(fallbackId).catch(() => {});
     }
   }, [coaches, currentCoachId, updateLastUsed]);
-
-  // Save
-  useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
-  useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
 
   // ── Coach-scoped views — each coach only sees their own ──
   // Clients are read from Supabase; writes still go to localStorage this step.
