@@ -213,11 +213,6 @@ const addDays = (d, n) => {
   return `${y}-${mo}-${da}`;
 };
 
-const SEED_COACHES = [
-  { id: "coach_alex", name: "Alex Keaton" },
-  { id: "coach_sam",  name: "Sam Ortega" },
-];
-
 const SEED_CLIENTS = [
   { id: uid("c"), coachId: "coach_alex", name: "Maya Okafor", age: 34, goals: "Build strength, run 10K under 52min", injuries: [], equipment: ["barbell","dumbbell","kettlebell","machine"], level: "intermediate", notes: "Trains 3x/week. Prefers morning sessions." , since: "2024-08-15", bodyweight: [{date: addDays(today(),-45), lb: 141.5},{date: addDays(today(),-30), lb: 141.1},{date: addDays(today(),-15), lb: 140.2},{date: today(), lb: 139.8}] },
   { id: uid("c"), coachId: "coach_alex", name: "Daniel Kaur", age: 47, goals: "Maintain mobility, reduce back stiffness", injuries: ["low back injury"], equipment: ["dumbbell","bodyweight"], level: "beginner", notes: "Desk job. Avoid heavy spinal loading.", since: "2025-01-10", bodyweight: [{date: addDays(today(),-30), lb: 181.0},{date: today(), lb: 179.5}] },
@@ -239,10 +234,9 @@ const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefine
    ============================================================ */
 export default function CoachApp() {
   const { session } = useSession();
-  const { coaches: dbCoaches, loading: coachesLoading, error: coachesError, createCoach, updateCoach, updateLastUsed } = useCoaches(session);
+  const { coaches, loading: coachesLoading, error: coachesError, createCoach, updateCoach, updateLastUsed } = useCoaches(session);
 
   const [loaded, setLoaded] = useState(false);
-  const [coaches, setCoaches] = useState([]);
   const [currentCoachId, setCurrentCoachId] = useState(null);
   const [allClients, setAllClients] = useState([]);
   const [allWorkouts, setAllWorkouts] = useState([]); // { id, coachId, name, clientId?, date?, isTemplate, blocks }
@@ -275,7 +269,7 @@ export default function CoachApp() {
       // If the coach had previously toggled to kg, preserve that. Otherwise default lb.
       const migrationUnit = legacyUnitPref === "kg" ? "kg" : "lb";
 
-      const coachesInit = coachList || SEED_COACHES;
+      const coachesInit = coachList || [];
       // If the persisted current coach is archived (shouldn't happen since we
       // block archiving the active coach, but just in case after a restore),
       // fall back to the first non-archived coach.
@@ -368,18 +362,6 @@ export default function CoachApp() {
       setLoaded(true);
     })();
   }, []);
-
-  // Populate coaches from Supabase. SEED_COACHES is used only as a transitional
-  // fallback when the Supabase fetch has finished and returned no rows. While
-  // the fetch is in flight, coaches stays at whatever it was (typically []).
-  useEffect(() => {
-    if (coachesLoading) return;
-    if (dbCoaches.length > 0) {
-      setCoaches(dbCoaches);
-    } else {
-      setCoaches(SEED_COACHES);
-    }
-  }, [coachesLoading, dbCoaches]);
 
   // Reconcile currentCoachId against the loaded coaches array. If the persisted
   // value (from localStorage via setCurrentCoachId initializer earlier) does not
@@ -491,10 +473,16 @@ export default function CoachApp() {
     setArchivePending(null);
   };
 
-  const restoreCoach = (coachId) => {
+  const restoreCoach = async (coachId) => {
     const target = coaches.find(c => c.id === coachId);
     if (!target) return;
-    setCoaches(coaches.map(c => c.id === coachId ? { ...c, archived: false, archivedAt: undefined } : c));
+    try {
+      await updateCoach(coachId, { archived: false, archivedAt: null });
+    } catch (err) {
+      console.error('restoreCoach: update failed', target, err);
+      alert(`Failed to restore coach ${target.name}: ${err?.message ?? err}.`);
+      return;
+    }
     notify(`Restored ${target.name}`);
   };
 
