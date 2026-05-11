@@ -360,7 +360,7 @@ export default function CoachApp() {
   }, [coaches, currentCoachId, updateLastUsed]);
 
   // ── Coach-scoped views — each coach only sees their own ──
-  const { clients: dbClients, loading: clientsLoading, createClient, updateClient } = useClients(currentCoachId);
+  const { clients: dbClients, createClient, updateClient } = useClients(currentCoachId);
   const clients = useMemo(
     () => dbClients.map(c => ({
       ...c,
@@ -398,13 +398,13 @@ export default function CoachApp() {
     supabase.auth.signOut();
   };
 
-  // Hydrate persisted nav once per coach activation. Waits until the coach's
-  // clients have loaded so selectedClientId can be validated against the real
-  // client list (otherwise an empty array would always force the fallback).
+  // Hydrate persisted nav once per coach activation. Client existence is NOT
+  // validated here — useClients doesn't expose a reliable loading flag, so an
+  // empty initial array would force a false fallback to dashboard on every
+  // reload. Orphan-client cleanup happens in the render-time effect below.
   useEffect(() => {
     if (!currentCoachId) return;
     if (hydratedFor.current === currentCoachId) return;
-    if (clientsLoading) return;
 
     const blob = readNav(currentCoachId);
     hydratedFor.current = currentCoachId;
@@ -415,14 +415,9 @@ export default function CoachApp() {
     let nextTab = "program";
 
     if (typeof blob.view === "string" && PERSISTABLE_VIEWS.has(blob.view)) {
-      if (blob.view === "client" || blob.view === "clientView") {
-        const cid = blob.selectedClientId;
-        if (cid && clients.some(c => c.id === cid)) {
-          nextView = blob.view;
-          nextClientId = cid;
-        }
-      } else {
-        nextView = blob.view;
+      nextView = blob.view;
+      if (blob.view === "client" && blob.selectedClientId) {
+        nextClientId = blob.selectedClientId;
       }
     }
     if (typeof blob.clientTab === "string" && CLIENT_DETAIL_TABS.has(blob.clientTab)) {
@@ -432,7 +427,20 @@ export default function CoachApp() {
     setView(nextView);
     setSelectedClientId(nextClientId);
     setClientTab(nextTab);
-  }, [currentCoachId, clientsLoading, clients]);
+  }, [currentCoachId]);
+
+  // Render-time orphan fallback: if the persisted client was archived/deleted
+  // between sessions, drop back to dashboard once clients have actually loaded.
+  // Gated on hydration to avoid clobbering before the read effect fires.
+  useEffect(() => {
+    if (hydratedFor.current !== currentCoachId) return;
+    if (view !== "client") return;
+    if (clients.length === 0) return;
+    if (!selectedClientId) return;
+    if (clients.some(c => c.id === selectedClientId)) return;
+    setView("dashboard");
+    setSelectedClientId(null);
+  }, [currentCoachId, view, selectedClientId, clients]);
 
   // Persist nav whenever the tracked slices change. Gated on hydratedFor so we
   // don't overwrite a freshly read blob with the pre-hydration defaults.
