@@ -271,9 +271,10 @@ const SupersetChip = () => (
    NAV PERSISTENCE
    ============================================================ */
 const NAV_STORAGE_PREFIX = "ledger:nav:";
-// Views safe to persist. `builder` is excluded — it needs builderCtx which
-// isn't persisted, so re-hydrating into the builder would mount it empty.
-const PERSISTABLE_VIEWS = new Set(["dashboard", "library", "templates", "client", "clientView"]);
+// Views safe to persist. Excluded:
+// - `builder` — needs builderCtx which isn't persisted, so re-hydrating would mount it empty
+// - `clientView` — transient "view as client" preview mode; coming back to it after a reload would hide the TopBar and disorient the coach
+const PERSISTABLE_VIEWS = new Set(["dashboard", "library", "templates", "client"]);
 const CLIENT_DETAIL_TABS = new Set(["program", "history", "progress", "measurements", "profile"]);
 
 const navKey = (coachId) => `${NAV_STORAGE_PREFIX}${coachId}`;
