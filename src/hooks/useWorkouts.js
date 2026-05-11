@@ -22,7 +22,8 @@ const WORKOUT_SELECT = `
   workout_blocks (
     id, workout_id, exercise_id, position, sets, reps,
     weight_lb, rest_seconds, unit, notes, side,
-    work_type, duration_seconds
+    work_type, duration_seconds,
+    group_id, group_position
   )
 `;
 
@@ -39,6 +40,8 @@ function blockFromRow(row) {
     side: row.side ?? 'bilateral',
     work_type: row.work_type ?? 'reps',
     durationSeconds: row.duration_seconds ?? null,
+    groupId: row.group_id ?? null,
+    groupPosition: row.group_position ?? null,
   };
 }
 
@@ -88,6 +91,8 @@ export function toBlockRow(block, workoutId, position) {
     side: block.side ?? 'bilateral',
     work_type: block.work_type ?? 'reps',
     duration_seconds: block.durationSeconds ?? null,
+    group_id: block.groupId ?? null,
+    group_position: block.groupPosition ?? null,
   };
 }
 

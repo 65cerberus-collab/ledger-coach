@@ -229,6 +229,44 @@ const movementClass = (m) => ({ push:"tag-dot-push", pull:"tag-dot-pull", squat:
 const prettyDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
+// Group blocks into render items so a superset (two blocks sharing groupId)
+// renders as a single visual unit. Solo blocks pass through unchanged.
+// Render order preserves the original workout order; a group is positioned
+// at the index of its earlier-in-the-workout member.
+function groupRenderItems(blocks) {
+  const items = [];
+  const consumed = new Set();
+  (blocks || []).forEach((block, idx) => {
+    if (consumed.has(idx)) return;
+    const gid = block.groupId;
+    if (!gid) {
+      items.push({ type: 'solo', block });
+      return;
+    }
+    const partnerIdx = (blocks || []).findIndex((b, j) => j !== idx && b.groupId === gid);
+    if (partnerIdx === -1) {
+      // Orphan group member (shouldn't happen, but render safely as solo).
+      items.push({ type: 'solo', block });
+      return;
+    }
+    const partner = blocks[partnerIdx];
+    consumed.add(partnerIdx);
+    const pair = [block, partner].sort(
+      (a, b) => (a.groupPosition ?? 99) - (b.groupPosition ?? 99)
+    );
+    items.push({ type: 'group', blocks: pair });
+  });
+  return items;
+}
+
+const SupersetChip = () => (
+  <span className="chip" style={{
+    background:"var(--accent-soft)", color:"var(--accent)",
+    borderColor:"#EBBEAF", fontSize:"10px", padding:"2px 8px",
+    letterSpacing:"0.06em", textTransform:"uppercase", fontWeight:600,
+  }}>Superset</span>
+);
+
 /* ============================================================
    MAIN APP
    ============================================================ */
@@ -2076,11 +2114,41 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
             <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>
           </div>
           <div className="space-y-2">
-            {workout.blocks.map((b, i) => {
+            {groupRenderItems(workout.blocks).map((item, idx) => {
+              if (item.type === 'group') {
+                const [b1, b2] = item.blocks;
+                const ex1 = exercises.find(e => e.id === b1.exId);
+                const ex2 = exercises.find(e => e.id === b2.exId);
+                const log1 = workoutLogs.find(l => l.exId === b1.exId);
+                const log2 = workoutLogs.find(l => l.exId === b2.exId);
+                const bothDone = !!log1 && !!log2;
+                return (
+                  <div key={`g-${b1.groupId}`} className="rounded-2xl p-3"
+                    style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                    <div className="flex items-center justify-between px-1 pb-2">
+                      <SupersetChip/>
+                      {bothDone && (
+                        <span className="mono text-[10px] uppercase tracking-wider flex items-center gap-1" style={{color:"var(--good)"}}>
+                          <Check size={11} strokeWidth={3}/> Both done
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-2">
+                      <ExerciseBlock block={b1} ex={ex1} blockLog={log1}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, exId: b1.exId, date: workout.date})}
+                        onDeleteLog={onDeleteLog}/>
+                      <ExerciseBlock block={b2} ex={ex2} blockLog={log2}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, exId: b2.exId, date: workout.date})}
+                        onDeleteLog={onDeleteLog}/>
+                    </div>
+                  </div>
+                );
+              }
+              const b = item.block;
               const ex = exercises.find(e => e.id === b.exId);
               const blockLog = workoutLogs.find(l => l.exId === b.exId);
               return (
-                <ExerciseBlock key={i} block={b} ex={ex} blockLog={blockLog}
+                <ExerciseBlock key={`b-${b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
                   onLog={(log) => onLog({...log, workoutId: workout.id, exId: b.exId, date: workout.date})}
                   onDeleteLog={onDeleteLog}
                 />
@@ -3090,17 +3158,49 @@ function TemplateCard({ tpl, exercises, onEdit, onDelete, onAssign }) {
       </div>
 
       <div className="space-y-1 mt-3 pt-3" style={{borderTop:"1px solid var(--line-2)"}}>
-        {tpl.blocks.slice(0, 4).map((b, i) => {
-          const ex = exercises.find(e => e.id === b.exId);
-          if (!ex) return null;
-          return (
-            <div key={i} className="flex items-center gap-2 text-[12px]">
-              <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
-              <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
-              <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.reps}</span>
-            </div>
-          );
-        })}
+        {(() => {
+          const renderBlockLine = (b, i) => {
+            const ex = exercises.find(e => e.id === b.exId);
+            if (!ex) return null;
+            return (
+              <div key={i} className="flex items-center gap-2 text-[12px]">
+                <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
+                <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
+                <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.reps}</span>
+              </div>
+            );
+          };
+          // Use groupRenderItems so a superset summary lines stay grouped with a chip.
+          const items = groupRenderItems(tpl.blocks);
+          // Show up to first 4 blocks (counting blocks, not items).
+          const out = [];
+          let blockCount = 0;
+          for (const item of items) {
+            if (blockCount >= 4) break;
+            if (item.type === 'group') {
+              const [b1, b2] = item.blocks;
+              const i1 = tpl.blocks.indexOf(b1);
+              const i2 = tpl.blocks.indexOf(b2);
+              out.push(
+                <div key={`g-${b1.groupId}`} className="rounded p-1.5"
+                  style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                  <div className="pb-1"><SupersetChip/></div>
+                  <div className="space-y-0.5">
+                    {renderBlockLine(b1, i1)}
+                    {renderBlockLine(b2, i2)}
+                  </div>
+                </div>
+              );
+              blockCount += 2;
+            } else {
+              const b = item.block;
+              const i = tpl.blocks.indexOf(b);
+              out.push(renderBlockLine(b, i));
+              blockCount += 1;
+            }
+          }
+          return out;
+        })()}
         {tpl.blocks.length > 4 && (
           <div className="text-[11px] mt-1" style={{color:"var(--muted)"}}>+{tpl.blocks.length - 4} more</div>
         )}
@@ -3474,7 +3574,17 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
     setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: ex.defReps, weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "" }]});
     notify?.(`Added ${ex.name}`);
   };
-  const removeBlock = (i) => setWorkout({...workout, blocks: workout.blocks.filter((_, idx) => idx !== i)});
+  const removeBlock = (i) => {
+    const target = workout.blocks[i];
+    let next = workout.blocks.filter((_, idx) => idx !== i);
+    // If the removed block was in a superset, auto-ungroup the surviving partner.
+    if (target?.groupId) {
+      next = next.map(b => b.groupId === target.groupId
+        ? { ...b, groupId: null, groupPosition: null }
+        : b);
+    }
+    setWorkout({...workout, blocks: next});
+  };
   const updateBlock = (i, patch) => setWorkout({...workout, blocks: workout.blocks.map((b, idx) => idx === i ? {...b, ...patch} : b)});
   const moveBlock = (i, dir) => {
     const newBlocks = [...workout.blocks];
@@ -3482,6 +3592,27 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
     if (target < 0 || target >= newBlocks.length) return;
     [newBlocks[i], newBlocks[target]] = [newBlocks[target], newBlocks[i]];
     setWorkout({...workout, blocks: newBlocks});
+  };
+  // Group block at i with the next adjacent block. The earlier block becomes
+  // group_position=1, the later block group_position=2.
+  const groupBlock = (i) => {
+    if (i < 0 || i + 1 >= workout.blocks.length) return;
+    if (workout.blocks[i].groupId || workout.blocks[i+1].groupId) return;
+    const gid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : uid('g');
+    setWorkout({...workout, blocks: workout.blocks.map((b, idx) => {
+      if (idx === i) return { ...b, groupId: gid, groupPosition: 1 };
+      if (idx === i + 1) return { ...b, groupId: gid, groupPosition: 2 };
+      return b;
+    })});
+  };
+  // Ungroup the superset that contains block at index i.
+  const ungroupBlock = (i) => {
+    const gid = workout.blocks[i]?.groupId;
+    if (!gid) return;
+    setWorkout({...workout, blocks: workout.blocks.map(b => b.groupId === gid
+      ? { ...b, groupId: null, groupPosition: null }
+      : b
+    )});
   };
 
   return (
@@ -3661,9 +3792,51 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 <div className="text-sm" style={{color:"var(--muted)"}}>Tap any exercise in the library to add it here.</div>
               </div>
             )}
-            {workout.blocks.map((b, i) => {
-              const ex = exercises.find(e => e.id === b.exId);
-              return <BuilderBlock key={i} i={i} block={b} ex={ex} onUpdate={p => updateBlock(i, p)} onRemove={() => removeBlock(i)} onMove={(dir) => moveBlock(i, dir)} canMoveUp={i>0} canMoveDown={i<workout.blocks.length-1}/>;
+            {groupRenderItems(workout.blocks).map((item, itemIdx) => {
+              if (item.type === 'group') {
+                const [b1, b2] = item.blocks;
+                const i1 = workout.blocks.indexOf(b1);
+                const i2 = workout.blocks.indexOf(b2);
+                return (
+                  <div key={`g-${b1.groupId}`} className="rounded-2xl p-2 grow-in"
+                    style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                    <div className="flex items-center justify-between px-2 pt-1 pb-2">
+                      <SupersetChip/>
+                      <button onClick={() => ungroupBlock(i1)} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded"
+                        style={{color:"var(--ink-2)"}}>
+                        Ungroup
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {[i1, i2].map(idx => {
+                        const blk = workout.blocks[idx];
+                        const ex = exercises.find(e => e.id === blk.exId);
+                        return <BuilderBlock key={idx} i={idx} block={blk} ex={ex}
+                          onUpdate={p => updateBlock(idx, p)}
+                          onRemove={() => removeBlock(idx)}
+                          onMove={(dir) => moveBlock(idx, dir)}
+                          canMoveUp={idx>0} canMoveDown={idx<workout.blocks.length-1}
+                          onGroup={null} canGroup={false}
+                          onUngroup={() => ungroupBlock(idx)}
+                          inGroup
+                        />;
+                      })}
+                    </div>
+                  </div>
+                );
+              }
+              const i = workout.blocks.indexOf(item.block);
+              const ex = exercises.find(e => e.id === item.block.exId);
+              const next = workout.blocks[i+1];
+              const canGroup = !!next && !item.block.groupId && !next.groupId;
+              return <BuilderBlock key={i} i={i} block={item.block} ex={ex}
+                onUpdate={p => updateBlock(i, p)}
+                onRemove={() => removeBlock(i)}
+                onMove={(dir) => moveBlock(i, dir)}
+                canMoveUp={i>0} canMoveDown={i<workout.blocks.length-1}
+                onGroup={() => groupBlock(i)} canGroup={canGroup}
+                onUngroup={null} inGroup={false}
+              />;
             })}
           </div>
 
@@ -3707,7 +3880,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   );
 }
 
-function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, canMoveDown }) {
+function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, canMoveDown, onGroup, canGroup, onUngroup, inGroup }) {
   if (!ex) return null;
   const unit = block.unit || "lb";
   const side = block.side || "bilateral";
@@ -3718,7 +3891,7 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
   const setSide = (s) => onUpdate({ side: s });
   const setWorkType = (w) => onUpdate({ work_type: w });
   return (
-    <div className="card p-4 grow-in">
+    <div className="card p-4 grow-in" style={inGroup ? {borderColor:"#EBBEAF", background:"#fff"} : {}}>
       <div className="flex items-start gap-3">
         <div className="flex flex-col items-center gap-0.5 pt-1">
           <button onClick={() => onMove(-1)} disabled={!canMoveUp} className="p-0.5 rounded" style={{color: canMoveUp ? "var(--ink-2)" : "var(--line)"}}><ChevronLeft size={12} style={{transform:"rotate(90deg)"}}/></button>
@@ -3735,6 +3908,18 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
               <div className="mono text-[10px] uppercase tracking-wide mt-0.5" style={{color:"var(--muted)"}}>{ex.movement}</div>
             </div>
             <div className="flex items-center gap-2">
+              {!inGroup && onGroup && (
+                <button
+                  onClick={canGroup ? onGroup : undefined}
+                  disabled={!canGroup}
+                  title={canGroup ? "Group with the next exercise as a superset" : "No eligible next exercise to group with"}
+                  className="text-[11px] mono uppercase tracking-wider px-2 py-1 rounded hover-lift"
+                  style={canGroup
+                    ? {background:"var(--paper-2)", color:"var(--ink-2)", border:"1px solid var(--line-2)"}
+                    : {background:"transparent", color:"var(--line)", border:"1px solid var(--line-2)", cursor:"not-allowed"}}>
+                  Group with next
+                </button>
+              )}
               <UnitToggle unit={unit} onChange={setUnit}/>
               <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={14}/></button>
             </div>
@@ -4075,29 +4260,51 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
               {nextWorkout.blocks.length} exercises · with your coach
             </div>
             <div className="space-y-2">
-              {nextWorkout.blocks.map((b, i) => {
-                const ex = exercises.find(e => e.id === b.exId);
-                if (!ex) return null;
-                const bUnit = b.unit || "lb";
-                const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
-                const isTime = b.work_type === "time";
-                return (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg" style={{background:"var(--paper)"}}>
-                    <span className="display text-sm tabular" style={{color:"var(--muted)", width:"22px"}}>{String(i+1).padStart(2,'0')}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[14px] font-medium">{ex.name}</div>
-                      {b.notes && <div className="text-[11px] italic mt-0.5" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
-                    </div>
-                    <div className="text-right">
-                      <div className="display text-base tabular">
-                        {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{isTime ? `${b.durationSeconds ?? "—"}s` : b.reps}
-                        {plannedW != null && <span className="text-xs ml-1" style={{color:"var(--muted)"}}>@ {plannedW}{unitLabel(bUnit)}</span>}
+              {(() => {
+                const renderRow = (b, i) => {
+                  const ex = exercises.find(e => e.id === b.exId);
+                  if (!ex) return null;
+                  const bUnit = b.unit || "lb";
+                  const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                  const isTime = b.work_type === "time";
+                  return (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg" style={{background:"var(--paper)"}}>
+                      <span className="display text-sm tabular" style={{color:"var(--muted)", width:"22px"}}>{String(i+1).padStart(2,'0')}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[14px] font-medium">{ex.name}</div>
+                        {b.notes && <div className="text-[11px] italic mt-0.5" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                       </div>
-                      <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{b.rest}s rest</div>
+                      <div className="text-right">
+                        <div className="display text-base tabular">
+                          {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{isTime ? `${b.durationSeconds ?? "—"}s` : b.reps}
+                          {plannedW != null && <span className="text-xs ml-1" style={{color:"var(--muted)"}}>@ {plannedW}{unitLabel(bUnit)}</span>}
+                        </div>
+                        <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{b.rest}s rest</div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                };
+                return groupRenderItems(nextWorkout.blocks).map((item, idx) => {
+                  if (item.type === 'group') {
+                    const [b1, b2] = item.blocks;
+                    const i1 = nextWorkout.blocks.indexOf(b1);
+                    const i2 = nextWorkout.blocks.indexOf(b2);
+                    return (
+                      <div key={`g-${b1.groupId}`} className="rounded-lg p-2"
+                        style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                        <div className="px-1 pb-2"><SupersetChip/></div>
+                        <div className="space-y-1.5">
+                          {renderRow(b1, i1)}
+                          {renderRow(b2, i2)}
+                        </div>
+                      </div>
+                    );
+                  }
+                  const b = item.block;
+                  const i = nextWorkout.blocks.indexOf(b);
+                  return renderRow(b, i);
+                });
+              })()}
             </div>
             <div className="mt-4 p-3 rounded-lg flex items-start gap-2.5" style={{background:"var(--paper-2)", border:"1px dashed var(--line)"}}>
               <AlertTriangle size={13} style={{color:"var(--muted)", marginTop:"2px"}}/>
@@ -4208,7 +4415,8 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                   <div className="px-4 pb-4 slide-in">
                     <div className="divider mb-3"/>
                     <div className="space-y-2">
-                      {w.blocks.map((b, i) => {
+                      {(() => {
+                      const renderHistBlock = (b, i) => {
                         const ex = exercises.find(e => e.id === b.exId);
                         if (!ex) return null;
                         const log = wLogs.find(l => l.exId === b.exId);
@@ -4265,7 +4473,28 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                             )}
                           </div>
                         );
-                      })}
+                      };
+                      return groupRenderItems(w.blocks).map((item, idx) => {
+                        if (item.type === 'group') {
+                          const [b1, b2] = item.blocks;
+                          const i1 = w.blocks.indexOf(b1);
+                          const i2 = w.blocks.indexOf(b2);
+                          return (
+                            <div key={`g-${b1.groupId}`} className="rounded-lg p-2"
+                              style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                              <div className="px-1 pb-2"><SupersetChip/></div>
+                              <div className="space-y-2">
+                                {renderHistBlock(b1, i1)}
+                                {renderHistBlock(b2, i2)}
+                              </div>
+                            </div>
+                          );
+                        }
+                        const b = item.block;
+                        const i = w.blocks.indexOf(b);
+                        return renderHistBlock(b, i);
+                      });
+                    })()}
                     </div>
                   </div>
                 )}
@@ -4355,10 +4584,52 @@ function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDi
       </div>
 
       <div className="space-y-3 mb-4">
-        {session.blocks.map((b, i) => {
+        {groupRenderItems(session.blocks).map((item, idx) => {
+          if (item.type === 'group') {
+            const [b1, b2] = item.blocks;
+            const ex1 = exercises.find(e => e.id === b1.exId);
+            const ex2 = exercises.find(e => e.id === b2.exId);
+            const log1 = logs.find(l => l.workoutId === session.id && l.exId === b1.exId);
+            const log2 = logs.find(l => l.workoutId === session.id && l.exId === b2.exId);
+            const removePartner = (target) => {
+              let next = session.blocks.filter(b => b !== target);
+              if (target.groupId) {
+                next = next.map(b => b.groupId === target.groupId
+                  ? { ...b, groupId: null, groupPosition: null }
+                  : b);
+              }
+              setSession({...session, blocks: next});
+            };
+            const bothDone = !!log1 && !!log2;
+            return (
+              <div key={`g-${b1.groupId}`} className="rounded-2xl p-3"
+                style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                <div className="flex items-center justify-between px-1 pb-2">
+                  <SupersetChip/>
+                  {bothDone && (
+                    <span className="mono text-[10px] uppercase tracking-wider flex items-center gap-1" style={{color:"var(--good)"}}>
+                      <Check size={11} strokeWidth={3}/> Both done
+                    </span>
+                  )}
+                </div>
+                <div className="grid md:grid-cols-2 gap-2">
+                  <SelfLogBlock block={b1} ex={ex1} sessionId={session.id}
+                    onRemove={() => removePartner(b1)}
+                    onLog={(data) => onLog({...data, workoutId: session.id, exId: b1.exId, date: session.date})}
+                    blockLog={log1}/>
+                  <SelfLogBlock block={b2} ex={ex2} sessionId={session.id}
+                    onRemove={() => removePartner(b2)}
+                    onLog={(data) => onLog({...data, workoutId: session.id, exId: b2.exId, date: session.date})}
+                    blockLog={log2}/>
+                </div>
+              </div>
+            );
+          }
+          const b = item.block;
+          const i = session.blocks.indexOf(b);
           const ex = exercises.find(e => e.id === b.exId);
-          return <SelfLogBlock key={i} block={b} ex={ex} sessionId={session.id}
-            onRemove={() => setSession({...session, blocks: session.blocks.filter((_,idx) => idx !== i)})}
+          return <SelfLogBlock key={`b-${b.exId}-${idx}`} block={b} ex={ex} sessionId={session.id}
+            onRemove={() => setSession({...session, blocks: session.blocks.filter((_,sidx) => sidx !== i)})}
             onLog={(data) => onLog({...data, workoutId: session.id, exId: b.exId, date: session.date})}
             blockLog={logs.find(l => l.workoutId === session.id && l.exId === b.exId)}
           />;
