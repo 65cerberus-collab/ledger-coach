@@ -547,6 +547,13 @@ export default function CoachApp() {
                   alert("Failed to update session: " + err.message);
                 }
               }}
+              onDeleteWorkout={async (id) => {
+                try { await deleteWorkout(id); notify("Workout deleted"); }
+                catch (err) {
+                  console.error("deleteWorkout failed", err);
+                  alert("Failed to delete workout: " + err.message);
+                }
+              }}
             />
           )}
           {view === "library" && (
@@ -1835,7 +1842,7 @@ function RecentActivity() { return null; } // deprecated — kept as empty stub 
 /* ============================================================
    CLIENT DETAIL
    ============================================================ */
-function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onViewAsClient }) {
+function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout, onViewAsClient }) {
   const [tab, setTab] = useState("program"); // program | history | profile | progress
   const clientWorkouts = workouts.filter(w => w.clientId === client.id && !w.isTemplate);
   const clientLogs = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId));
@@ -1884,7 +1891,7 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
           <ProgramTab client={client} clientWorkouts={clientWorkouts} exercises={exercises} workouts={workouts}
             logs={logs} attendance={attendance} unitPref={unitPref}
             onBuild={onBuild} onApplyTemplate={onApplyTemplate} onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog}
-            onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout}/>
+            onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} onDeleteWorkout={onDeleteWorkout}/>
         )}
         {tab === "history" && (
           <HistoryTab client={client} clientWorkouts={clientWorkouts} exercises={exercises} logs={logs} attendance={attendance} unitPref={unitPref}/>
@@ -1936,12 +1943,17 @@ function ClientHeader({ client, unitPref = "lb" }) {
 }
 
 /* -----------------------------  PROGRAM TAB  ----------------------------- */
-function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attendance, unitPref = "lb", onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout }) {
+function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attendance, unitPref = "lb", onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout }) {
   const t = today();
   const upcoming = clientWorkouts.filter(w => w.date >= t).sort((a,b) => a.date.localeCompare(b.date));
   const past = clientWorkouts.filter(w => w.date < t).sort((a,b) => b.date.localeCompare(a.date));
   const [openId, setOpenId] = useState(upcoming[0]?.id || null);
   const [pickingTemplate, setPickingTemplate] = useState(false);
+
+  const handleDeleteWorkout = async (id) => {
+    setOpenId(null);
+    await onDeleteWorkout(id);
+  };
 
   const templates = workouts.filter(w => w.isTemplate);
 
@@ -1964,7 +1976,7 @@ function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attenda
             <WorkoutRow key={w.id} workout={w} exercises={exercises} logs={logs} attendance={attendance} client={client} unitPref={unitPref}
               open={openId === w.id} onToggle={() => setOpenId(openId === w.id ? null : w.id)}
               onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}
-              onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout}/>
+              onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} onDeleteWorkout={handleDeleteWorkout}/>
           ))}
           {past.length > 0 && (
             <>
@@ -1973,7 +1985,7 @@ function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attenda
                 <WorkoutRow key={w.id} workout={w} exercises={exercises} logs={logs} attendance={attendance} client={client} unitPref={unitPref}
                   open={openId === w.id} onToggle={() => setOpenId(openId === w.id ? null : w.id)}
                   onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}
-                  onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} past/>
+                  onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} onDeleteWorkout={handleDeleteWorkout} past/>
               ))}
             </>
           )}
@@ -2074,9 +2086,13 @@ function TemplatePickerModal({ templates, exercises, onClose, onApply }) {
   );
 }
 
-function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "lb", open, onToggle, onLog, onAttendance, onDeleteLog, onEdit, onCompleteWorkout, onUncompleteWorkout, past }) {
+function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "lb", open, onToggle, onLog, onAttendance, onDeleteLog, onEdit, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout, past }) {
   const workoutLogs = logs.filter(l => l.workoutId === workout.id);
   const att = attendance.find(a => a.workoutId === workout.id);
+  const isCompleted = !!workout.completedAt;
+  const isInProgress = !isCompleted && workoutLogs.length > 0;
+  const isReady = !isCompleted && !isInProgress;
+  const [confirmDelete, setConfirmDelete] = useState(false);
   return (
     <div className="card">
       <button onClick={onToggle} className="w-full flex items-center gap-4 p-4 text-left">
@@ -2112,6 +2128,11 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
             ))}
             <div className="flex-1"/>
             <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>
+            {isReady && onDeleteWorkout && (
+              <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost btn-sm" style={{color:"var(--danger)"}}>
+                <Trash2 size={12}/> Delete
+              </button>
+            )}
           </div>
           <div className="space-y-2">
             {groupRenderItems(workout.blocks).map((item, idx) => {
@@ -2176,6 +2197,22 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
             </button>
           )}
         </div>
+      )}
+      {confirmDelete && (
+        <Modal onClose={() => setConfirmDelete(false)} title="Delete this workout?">
+          <p className="text-sm" style={{color:"var(--ink-2)"}}>
+            Delete workout for <b>{client?.name}</b> on <b>{prettyDate(workout.date)}</b>? This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
+            <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost">Cancel</button>
+            <button
+              onClick={async () => { setConfirmDelete(false); await onDeleteWorkout(workout.id); }}
+              className="btn btn-primary"
+              style={{background:"var(--danger)", borderColor:"var(--danger)"}}>
+              <Trash2 size={13}/> Delete workout
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );
