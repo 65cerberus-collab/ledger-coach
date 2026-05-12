@@ -268,6 +268,43 @@ const SupersetChip = () => (
 );
 
 /* ============================================================
+   NAV PERSISTENCE
+   ============================================================ */
+const NAV_STORAGE_PREFIX = "ledger:nav:";
+// Views safe to persist. Excluded:
+// - `builder` — needs builderCtx which isn't persisted, so re-hydrating would mount it empty
+// - `clientView` — transient "view as client" preview mode; coming back to it after a reload would hide the TopBar and disorient the coach
+const PERSISTABLE_VIEWS = new Set(["dashboard", "library", "templates", "client"]);
+const CLIENT_DETAIL_TABS = new Set(["program", "history", "progress", "measurements", "profile"]);
+
+const navKey = (coachId) => `${NAV_STORAGE_PREFIX}${coachId}`;
+const readNav = (coachId) => {
+  if (!coachId) return null;
+  try {
+    const raw = sessionStorage.getItem(navKey(coachId));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+const writeNav = (coachId, blob) => {
+  if (!coachId) return;
+  try { sessionStorage.setItem(navKey(coachId), JSON.stringify(blob)); } catch {}
+};
+const clearNav = (coachId) => {
+  if (!coachId) return;
+  try { sessionStorage.removeItem(navKey(coachId)); } catch {}
+};
+const clearAllNav = () => {
+  try {
+    const stale = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(NAV_STORAGE_PREFIX)) stale.push(k);
+    }
+    stale.forEach(k => sessionStorage.removeItem(k));
+  } catch {}
+};
+
+/* ============================================================
    MAIN APP
    ============================================================ */
 export default function CoachApp() {
@@ -284,8 +321,18 @@ export default function CoachApp() {
 
   const [view, setView] = useState("dashboard");
   const [selectedClientId, setSelectedClientId] = useState(null);
+  const [clientTab, setClientTab] = useState("program");
   const [builderCtx, setBuilderCtx] = useState(null);
   const [toast, setToast] = useState(null);
+  // Gates the main view tree so we don't flash Dashboard before reading the
+  // persisted nav blob. sessionStorage can't be read until currentCoachId is
+  // known (async), so a brief blank loading state on cold start is the honest
+  // trade-off vs landing on the wrong page.
+  const [hydrated, setHydrated] = useState(false);
+
+  // Tracks which coach's nav blob has been hydrated, so writes don't race the
+  // initial read and clobber persisted state with the pre-hydration defaults.
+  const hydratedFor = useRef(null);
 
   // Load
   useEffect(() => {
@@ -340,14 +387,79 @@ export default function CoachApp() {
   const currentCoach = coaches.find(c => c.id === currentCoachId);
 
   const switchCoach = (id) => {
+    setHydrated(false);
+    if (currentCoachId) clearNav(currentCoachId);
     setCurrentCoachId(id);
     setSelectedClientId(null);
+    setClientTab("program");
     setBuilderCtx(null);
     setView("dashboard");
     const c = coaches.find(x => x.id === id);
     if (c) notify(`Switched to ${c.name}`);
     updateLastUsed(id).catch(() => {});
   };
+
+  const handleSignOut = () => {
+    clearAllNav();
+    supabase.auth.signOut();
+  };
+
+  // Hydrate persisted nav once per coach activation. Client existence is NOT
+  // validated here — useClients doesn't expose a reliable loading flag, so an
+  // empty initial array would force a false fallback to dashboard on every
+  // reload. Orphan-client cleanup happens in the render-time effect below.
+  // Flips `hydrated` so the main view tree only mounts after the persisted
+  // state has been applied — prevents a Dashboard flash on cold start.
+  useEffect(() => {
+    if (!currentCoachId) return;
+    if (hydratedFor.current === currentCoachId) return;
+
+    const blob = readNav(currentCoachId);
+    hydratedFor.current = currentCoachId;
+
+    if (blob) {
+      let nextView = "dashboard";
+      let nextClientId = null;
+      let nextTab = "program";
+
+      if (typeof blob.view === "string" && PERSISTABLE_VIEWS.has(blob.view)) {
+        nextView = blob.view;
+        if (blob.view === "client" && blob.selectedClientId) {
+          nextClientId = blob.selectedClientId;
+        }
+      }
+      if (typeof blob.clientTab === "string" && CLIENT_DETAIL_TABS.has(blob.clientTab)) {
+        nextTab = blob.clientTab;
+      }
+
+      setView(nextView);
+      setSelectedClientId(nextClientId);
+      setClientTab(nextTab);
+    }
+
+    setHydrated(true);
+  }, [currentCoachId]);
+
+  // Render-time orphan fallback: if the persisted client was archived/deleted
+  // between sessions, drop back to dashboard once clients have actually loaded.
+  // Gated on hydration to avoid clobbering before the read effect fires.
+  useEffect(() => {
+    if (hydratedFor.current !== currentCoachId) return;
+    if (view !== "client") return;
+    if (clients.length === 0) return;
+    if (!selectedClientId) return;
+    if (clients.some(c => c.id === selectedClientId)) return;
+    setView("dashboard");
+    setSelectedClientId(null);
+  }, [currentCoachId, view, selectedClientId, clients]);
+
+  // Persist nav whenever the tracked slices change. Gated on hydratedFor so we
+  // don't overwrite a freshly read blob with the pre-hydration defaults.
+  useEffect(() => {
+    if (!currentCoachId) return;
+    if (hydratedFor.current !== currentCoachId) return;
+    writeNav(currentCoachId, { view, selectedClientId, clientTab });
+  }, [currentCoachId, view, selectedClientId, clientTab]);
   // Cascade-archive: archiving a coach also archives every one of their active
   // clients. If the coach has no active clients, archive immediately. Otherwise
   // open a confirmation modal that lists each affected client. Per-client export
@@ -427,7 +539,7 @@ export default function CoachApp() {
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden paper-grain" style={{background:"var(--paper)"}}>
       <GlobalStyles />
-      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} onSwitch={switchCoach} onAddProfile={() => setIsAddProfileOpen(true)} onArchive={archiveCoach} onRestore={restoreCoach}/>}
+      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} onSwitch={switchCoach} onAddProfile={() => setIsAddProfileOpen(true)} onArchive={archiveCoach} onRestore={restoreCoach} onSignOut={handleSignOut}/>}
       {archivePending && (
         <ArchiveCoachModal
           coach={archivePending.coach}
@@ -467,16 +579,23 @@ export default function CoachApp() {
           />
         )}
         <main className="flex-1 overflow-y-auto">
-          {view === "dashboard" && (
+          {!hydrated && (
+            <div className="h-full w-full flex items-center justify-center">
+              <div className="display text-lg tracking-tight" style={{color:"var(--ink)", opacity: 0.5}}>loading…</div>
+            </div>
+          )}
+          {hydrated && view === "dashboard" && (
             <Dashboard
               clients={clients} workouts={workouts} logs={logs} attendance={attendance}
               onOpenClient={(id) => { setSelectedClientId(id); setView("client"); }}
               onBuild={(ctx) => { setBuilderCtx(ctx); setView("builder"); }}
             />
           )}
-          {view === "client" && selectedClient && (
+          {hydrated && view === "client" && selectedClient && (
             <ClientDetail
               client={selectedClient}
+              tab={clientTab}
+              onTabChange={setClientTab}
               workouts={workouts} exercises={exercises} logs={logs} attendance={attendance} unitPref={unitPref}
               onUpdate={async (patch) => {
                 try {
@@ -556,7 +675,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "library" && (
+          {hydrated && view === "library" && (
             <ExerciseLibrary
               exercises={exercises} clients={clients}
               onAdd={async (ex) => {
@@ -586,7 +705,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "templates" && (
+          {hydrated && view === "templates" && (
             <TemplatesView
               workouts={workouts} exercises={exercises} clients={clients}
               onBuild={(ctx) => { setBuilderCtx(ctx); setView("builder"); }}
@@ -620,7 +739,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "builder" && (
+          {hydrated && view === "builder" && (
             <WorkoutBuilder
               ctx={builderCtx} exercises={exercises} clients={clients} workouts={workouts} logs={logs}
               notify={notify} unitPref={unitPref}
@@ -639,7 +758,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "clientView" && selectedClient && (
+          {hydrated && view === "clientView" && selectedClient && (
             <ClientView
               client={selectedClient}
               workouts={workouts.filter(w => w.clientId === selectedClient.id && !w.isTemplate)}
@@ -683,7 +802,7 @@ export default function CoachApp() {
 /* ============================================================
    TOP BAR
    ============================================================ */
-function TopBar({ coaches, currentCoach, onSwitch, onAddProfile, onArchive, onRestore }) {
+function TopBar({ coaches, currentCoach, onSwitch, onAddProfile, onArchive, onRestore, onSignOut }) {
   const [time, setTime] = useState(new Date());
   const [open, setOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -800,7 +919,7 @@ function TopBar({ coaches, currentCoach, onSwitch, onAddProfile, onArchive, onRe
                 </>
               )}
               <div style={{borderTop:"1px solid var(--line-2)"}}/>
-              <button onClick={() => { supabase.auth.signOut(); setOpen(false); }}
+              <button onClick={() => { onSignOut?.(); setOpen(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
                 <LogOut size={14}/> Sign out
               </button>
@@ -1842,8 +1961,12 @@ function RecentActivity() { return null; } // deprecated — kept as empty stub 
 /* ============================================================
    CLIENT DETAIL
    ============================================================ */
-function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout, onViewAsClient }) {
-  const [tab, setTab] = useState("program"); // program | history | profile | progress
+function ClientDetail({ client, tab: tabProp, onTabChange, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout, onViewAsClient }) {
+  // Controlled when a parent passes `tab`/`onTabChange` (CoachApp persists it
+  // across reloads); falls back to local state for any other caller.
+  const [localTab, setLocalTab] = useState("program"); // program | history | profile | progress | measurements
+  const tab = tabProp ?? localTab;
+  const setTab = onTabChange ?? setLocalTab;
   const clientWorkouts = workouts.filter(w => w.clientId === client.id && !w.isTemplate);
   const clientLogs = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId));
 
