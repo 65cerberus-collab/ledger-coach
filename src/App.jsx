@@ -1066,7 +1066,7 @@ const HELP_CONTENT = [
     id: "getting-started",
     title: "Getting started",
     audience: ["coach", "client"],
-    keywords: ["intro","install","pwa","ipad","launch","first","date","navigation","calendar"],
+    keywords: ["intro","install","pwa","ipad","launch","first","date","navigation","calendar","sign-in","account","sync"],
     body: `## What Ledger is
 
 Ledger is a coach-centric personal training app. The coach is the primary user — planning workouts, logging sessions, tracking progress for each client. Clients have a separate, simpler view (Today / History / Log Solo / Notes).
@@ -1079,9 +1079,11 @@ Open the Ledger URL in Safari, tap the **Share** icon, then **Add to Home Screen
 
 ## First launch
 
-If this is your first time, Ledger comes pre-loaded with a small set of demo coaches and clients so you can explore. Once you start adding your own data, you can either delete the demo records or just leave them — they don't affect anything.
+The first time you open Ledger, you'll see a sign-in screen. Create an account with an email and password — this account is yours, and your data follows it to every device you sign into.
 
-If you're starting fresh on a new device, see [Restoring on a new device](#backup-restore).
+New accounts start with a blank slate: no coaches, no clients. Add your first coach from the badge in the top right, then start adding clients from the sidebar. See [Coaches](#coaches) and [Clients](#clients).
+
+If you already have an account and you're signing in on a new device — or a different browser, or after reinstalling — just sign in. Your data is already there.
 
 ## Date navigation
 
@@ -1095,11 +1097,13 @@ The home screen shows a 7-day strip with today highlighted. Tap any day to switc
     title: "Coaches",
     audience: ["coach"],
     keywords: ["coach","switch","add","archive","transfer","multi"],
-    body: `Ledger supports multiple coaches on a single device. Each coach has their own isolated clients, workouts, logs, and attendance. The exercise library is **shared** across all coaches.
+    body: `Ledger supports multiple coaches under a single account — useful if you wear more than one hat. Each coach has their own isolated clients, workouts, logs, and attendance; switching between them is one tap. The exercise library is **shared** across all coaches on your account.
+
+Your account is capped at **5 active coaches**. Archived coaches don't count against the cap.
 
 ## Adding a coach
 
-Tap your coach badge in the top right, then **Add new coach**. Pick a name. The new coach is created and you're switched to them.
+Tap your coach badge in the top right, then **Add a profile**. Pick a name. The new coach is created and you're switched to them.
 
 ## Switching coaches
 
@@ -1182,7 +1186,7 @@ When building a workout for a specific client, this toggle hides exercises that 
 
 ## Adding a custom exercise
 
-In Exercise Library, tap **+ New exercise**. Fill in the name, movement category, target muscles, equipment, difficulty, default sets/reps/rest, and any tags or contraindications. Custom exercises live in the same shared library as the seeded ones.
+In Exercise Library, tap **+ New exercise**. Fill in the name, movement category, target muscles, equipment, difficulty, default sets/reps/rest, and any tags or contraindications. Custom exercises live in the same shared library as the seeded ones — every coach on your account can see and use them.
 
 ## Why duplicate names are blocked
 
@@ -1350,48 +1354,6 @@ If a client wants to do a workout that wasn't planned, **Log solo** lets them bu
   },
 
   {
-    id: "backup-restore",
-    title: "Backup & restore",
-    audience: ["coach"],
-    keywords: ["backup","restore","export","import","json","new device","data loss","schema","migration"],
-    body: `Ledger stores all data in your device's localStorage. There's no cloud sync — moving between devices, or recovering after data loss, requires manual backup files.
-
-## What's in a backup
-
-A backup is a single JSON file containing:
-
-- All coaches (active and archived)
-- All clients (across all coaches)
-- The exercise library (shared, including custom exercises)
-- All planned workouts and templates
-- All logs and attendance records
-
-Display preferences (per-block units, etc.) are included.
-
-## When to back up
-
-- Before any major change to your data
-- Before installing app updates
-- Once a week as routine practice
-- Before switching devices
-
-## Creating a backup
-
-Coach badge menu → **Download backup (.json)**. The file downloads with today's date in the filename: \`ledger-backup-YYYY-MM-DD.json\`.
-
-## Restoring on a new device
-
-1. Install Ledger on the new device.
-2. Coach badge menu → **Restore from backup…**
-3. Select the JSON file.
-4. Confirm the warning. **Restore replaces everything in the app** — coaches, clients, workouts, logs, library.
-
-## Schema versions
-
-Each backup carries a \`schemaVersion\` number. When the app updates and the data shape changes, older backups are migrated forward automatically on import. Backups from newer versions can't be imported into older app builds.`
-  },
-
-  {
     id: "troubleshooting",
     title: "Troubleshooting & tips",
     audience: ["coach", "client"],
@@ -1412,32 +1374,46 @@ Toggling lb ↔ kg on a block doesn't change the actual weight — only how it's
 
 ## App stuck on "loading…"
 
-The load screen showing for more than a few seconds usually means localStorage is corrupted or unreadable. Try:
+The load screen showing for more than a few seconds usually points to a connection or sign-in issue, not lost data. Try:
 
-1. Closing and reopening the app
-2. If that fails, your most recent backup is your fallback — see [Backup & restore](#backup-restore)
+1. Check your connection — Ledger needs to reach the server to load your data
+2. Close and reopen the app
+3. Sign out and back in (coach badge → **Sign out**)
 
-## Lost data
+If the problem persists, note any error message and reach out. Your data is safe on the server, even if the app can't reach it right now.
 
-There's no recovery short of a backup. localStorage is per-device, per-browser, per-domain. Clearing browser data, uninstalling the PWA, or factory-resetting the device wipes Ledger data with it. Back up regularly.`
+## "Did I lose my data?"
+
+Your data is stored on the server, not on this device. Clearing browser data, uninstalling the PWA, or switching to a different device won't wipe anything — sign in again and your data will be there.
+
+If something genuinely seems missing (a client or workout you remember creating that isn't showing up), check the archived section of the relevant list first — archived items collapse out of view but aren't deleted. If it's still missing after that, reach out.`
   },
 
   {
     id: "about",
     title: "About",
     audience: ["coach", "client"],
-    keywords: ["about","privacy","storage","developer","version"],
+    keywords: ["about","privacy","storage","sync","server","supabase","units"],
     body: `## Storage model
 
-All data lives in your device's localStorage. Ledger does not send data to any server. There is no account system, no cloud sync, no analytics, no telemetry.
+Ledger uses a managed Postgres database (Supabase) on the server side. Your data is stored there and synced to every device where you're signed in. Sign-in uses email and password.
+
+A few small things still live locally on your device, for convenience:
+
+- **In-progress workout builder drafts** — so you don't lose work if the tab is suspended or the browser closes mid-edit.
+- **Last-viewed screen, per coach** — so a reload lands you where you left off instead of dropping you back on the dashboard.
+
+Everything else lives on the server.
 
 ## Privacy
 
-Your client data — names, goals, injuries, measurements, logs — never leaves your device unless you export a backup file and share it yourself.
+Your client data — names, goals, injuries, measurements, logs — is stored on the server tied to your account. Row-level security policies enforce that you can only read and write your own account's data; other accounts can't see it.
 
-## Schema version
+Ledger doesn't run analytics or behavior telemetry, and your data isn't shared with third parties.
 
-The current data schema version is 7. The app handles migrations automatically when loading older data. Canonical storage is lb (weight) and in (length); display units (lb/kg, in/cm) are a per-input toggle.
+## Units
+
+Canonical storage is lb (weight) and in (length); display units (lb/kg, in/cm) are a per-input toggle. Toggling units changes how a value is shown, never the underlying number.
 
 ## Credits
 
