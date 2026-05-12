@@ -62,7 +62,7 @@ Project context for future Claude Code sessions working on Ledger.
 ## Future phases
 
 - **Phase 4:** payment gating with Stripe (per-seat SaaS model TBD against multi-profile reality), SMTP upgrade from Supabase built-in service.
-- **Polish (unscheduled):** delete-workout button (UI gap), navigation state persistence (tab-switch resets), `ClientNotesTab` UX refinement.
+- **Polish (unscheduled):** `ClientNotesTab` UX refinement.
 - **Deferred from the Phase 3 plan, not currently scheduled:** `syncService.js` with dirty queue, sync indicator, conflict resolution per `MIGRATION_PLAN.md` §7, password reset UI, magic-link auth, Phase 2.5 test harness, multi-coach-per-client (`client_collaborators` table), template marketplace.
 
 See `MIGRATION_PLAN.md` for the original migration plan and the "Phase 3 actual outcome" appendix at the end for what shipped vs. what was deferred.
