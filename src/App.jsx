@@ -3917,12 +3917,11 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   return (
     <div className="h-full flex slide-in">
       {restoreCandidate && (
-        <Modal onClose={() => setRestoreCandidate(null)} title="Resume unsaved workout?">
+        <Modal onClose={() => {}} hideClose title="Resume unsaved workout?">
           <p className="text-sm mb-5" style={{color:"var(--ink-2)"}}>
             You have an unsaved draft for <b>{restoreClientName}</b> on <b>{prettyDate(restoreDraft.date)}</b> ({restoreBlockCount} block{restoreBlockCount === 1 ? "" : "s"}). Resume or discard?
           </p>
           <div className="flex items-center gap-2 justify-end">
-            <button onClick={() => setRestoreCandidate(null)} className="btn btn-ghost">Cancel</button>
             <button onClick={handleDiscardDraft} className="btn btn-ghost">Discard</button>
             <button onClick={handleResume} className="btn btn-accent">Resume</button>
           </div>
@@ -4462,13 +4461,15 @@ function AddClientModal({ onClose, onSave }) {
 /* ============================================================
    MODAL
    ============================================================ */
-function Modal({ onClose, title, children, wide }) {
+function Modal({ onClose, title, children, wide, hideClose }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-6 grow-in" style={{background:"rgba(22,20,15,0.35)", backdropFilter:"blur(4px)"}}>
       <div className="card w-full overflow-hidden flex flex-col" style={{maxWidth: wide ? "640px" : "520px", maxHeight:"90vh", boxShadow:"0 32px 80px rgba(22,20,15,0.3)"}}>
         <div className="flex items-center justify-between px-6 py-4" style={{borderBottom:"1px solid var(--line-2)"}}>
           <h3 className="display text-xl tracking-tight">{title}</h3>
-          <button onClick={onClose} className="p-1.5 rounded hover-lift" style={{color:"var(--muted)"}}><X size={16}/></button>
+          {!hideClose && (
+            <button onClick={onClose} className="p-1.5 rounded hover-lift" style={{color:"var(--muted)"}}><X size={16}/></button>
+          )}
         </div>
         <div className="overflow-y-auto px-6 py-5">
           {children}
