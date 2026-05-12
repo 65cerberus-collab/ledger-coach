@@ -742,7 +742,7 @@ export default function CoachApp() {
           {hydrated && view === "builder" && (
             <WorkoutBuilder
               ctx={builderCtx} exercises={exercises} clients={clients} workouts={workouts} logs={logs}
-              notify={notify} unitPref={unitPref}
+              notify={notify} unitPref={unitPref} coachId={currentCoachId}
               onCancel={() => { setView(builderCtx?.clientId ? "client" : "dashboard"); }}
               onSave={async (workout) => {
                 const existing = workouts.find(w => w.id === workout.id);
@@ -754,6 +754,7 @@ export default function CoachApp() {
                 } catch (err) {
                   console.error("workout save failed", err);
                   alert("Failed to save workout. Please try again.");
+                  throw err;
                 }
               }}
             />
@@ -3659,7 +3660,7 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
 /* ============================================================
    WORKOUT BUILDER
    ============================================================ */
-function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, unitPref = "lb", onCancel, onSave }) {
+function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, unitPref = "lb", coachId, onCancel, onSave }) {
   const existing = ctx?.workoutId && !ctx?.prefill ? workouts.find(w => w.id === ctx.workoutId) : null;
   const client = ctx?.clientId ? clients.find(c => c.id === ctx.clientId) : null;
 
@@ -3677,6 +3678,138 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   const [modalityFilter, setModalityFilter] = useState(null);
   const [applyClientFilter, setApplyClientFilter] = useState(false);
   const [showRecent, setShowRecent] = useState(true);
+
+  // ---------- Draft persistence (localStorage) ----------
+  // Survives Chrome tab suspension / iOS WebView eviction so a coach mid-build
+  // can return and resume. One draft per coach; cross-profile-safe via the
+  // coachId stored in the blob.
+  const draftKey = coachId ? `ledger:builder-draft:${coachId}` : null;
+  const autosaveTimer = useRef(null);
+  // Builder entries that already carry meaningful intent (editing an existing
+  // workout, or applying a template via the edit-first prefill) must NOT show
+  // the restore prompt. Their draft for any other in-progress work is
+  // preserved silently and will surface next time on a blank entry.
+  const entryHasIntent = !!(ctx?.prefill || (ctx?.workoutId && existing));
+  const [restoreCandidate, setRestoreCandidate] = useState(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const isMeaningful = (w) => !!(w?.name?.trim() || (w?.blocks?.length > 0));
+
+  // Read draft on mount. We intentionally only run once: subsequent changes
+  // to clients/exercises shouldn't reopen the prompt.
+  useEffect(() => {
+    if (!draftKey || entryHasIntent) return;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return;
+      const blob = JSON.parse(raw);
+      if (!blob || blob.coachId !== coachId) return; // ignore other-profile drafts
+      if (!isMeaningful(blob.workout)) {
+        // Empty leftover — silently drop it.
+        localStorage.removeItem(draftKey);
+        return;
+      }
+      setRestoreCandidate(blob);
+    } catch {
+      // corrupt blob — drop it
+      try { localStorage.removeItem(draftKey); } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave with a 500ms debounce. Skip while we're still showing the
+  // restore prompt (initial workout state is irrelevant then) and skip empty
+  // workouts so Builder mount doesn't overwrite a real draft with nothing.
+  useEffect(() => {
+    if (!draftKey) return;
+    if (restoreCandidate) return;
+    if (!isMeaningful(workout)) return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({
+          coachId,
+          savedAt: Date.now(),
+          workout,
+        }));
+      } catch {
+        // quota / serialization failure — ignore, draft is best-effort
+      }
+    }, 500);
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+  }, [workout, draftKey, coachId, restoreCandidate]);
+
+  const clearDraft = () => {
+    if (!draftKey) return;
+    try { localStorage.removeItem(draftKey); } catch {}
+  };
+
+  const handleResume = () => {
+    const draft = restoreCandidate?.workout;
+    if (!draft) { setRestoreCandidate(null); return; }
+    const warnings = [];
+    let cleanClientId = draft.clientId || null;
+    if (cleanClientId && !clients.find(c => c.id === cleanClientId)) {
+      cleanClientId = null;
+      warnings.push("client");
+    }
+    const exIds = new Set(exercises.map(e => e.id));
+    const originalBlocks = Array.isArray(draft.blocks) ? draft.blocks : [];
+    const keptBlocks = originalBlocks.filter(b => exIds.has(b.exId));
+    // If a superset partner was dropped, ungroup the survivor.
+    const groupCounts = keptBlocks.reduce((acc, b) => {
+      if (b.groupId) acc[b.groupId] = (acc[b.groupId] || 0) + 1;
+      return acc;
+    }, {});
+    const cleanedBlocks = keptBlocks.map(b =>
+      b.groupId && groupCounts[b.groupId] < 2
+        ? { ...b, groupId: null, groupPosition: null }
+        : b
+    );
+    const droppedCount = originalBlocks.length - keptBlocks.length;
+    setWorkout({
+      ...draft,
+      clientId: cleanClientId,
+      blocks: cleanedBlocks,
+    });
+    setRestoreCandidate(null);
+    if (droppedCount > 0) {
+      notify?.(`Some exercises in your draft were removed (${droppedCount})`);
+    } else if (warnings.length) {
+      notify?.("Draft client no longer exists — set to unassigned");
+    }
+  };
+
+  const handleDiscardDraft = () => {
+    clearDraft();
+    setRestoreCandidate(null);
+  };
+
+  const requestCancel = () => {
+    if (isMeaningful(workout)) {
+      setShowCancelConfirm(true);
+    } else {
+      onCancel?.();
+    }
+  };
+
+  const confirmCancel = () => {
+    clearDraft();
+    setShowCancelConfirm(false);
+    onCancel?.();
+  };
+
+  const handleSaveClick = async () => {
+    if (!workout.name || !workout.blocks.length) return;
+    try {
+      await onSave(workout);
+      clearDraft();
+    } catch {
+      // onSave already surfaced the error to the user; keep the draft.
+    }
+  };
 
   // Recent exercises: pull from this client's last 2 coach-built sessions
   // (excluding self-directed and excluding the workout currently being edited).
@@ -3775,8 +3908,36 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
     )});
   };
 
+  const restoreDraft = restoreCandidate?.workout;
+  const restoreClientName = restoreDraft?.clientId
+    ? (clients.find(c => c.id === restoreDraft.clientId)?.name || "no client")
+    : "no client";
+  const restoreBlockCount = restoreDraft?.blocks?.length || 0;
+
   return (
     <div className="h-full flex slide-in">
+      {restoreCandidate && (
+        <Modal onClose={() => {}} hideClose title="Resume unsaved workout?">
+          <p className="text-sm mb-5" style={{color:"var(--ink-2)"}}>
+            You have an unsaved draft for <b>{restoreClientName}</b> on <b>{prettyDate(restoreDraft.date)}</b> ({restoreBlockCount} block{restoreBlockCount === 1 ? "" : "s"}). Resume or discard?
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <button onClick={handleDiscardDraft} className="btn btn-ghost">Discard</button>
+            <button onClick={handleResume} className="btn btn-accent">Resume</button>
+          </div>
+        </Modal>
+      )}
+      {showCancelConfirm && (
+        <Modal onClose={() => setShowCancelConfirm(false)} title="Discard unsaved changes?">
+          <p className="text-sm mb-5" style={{color:"var(--ink-2)"}}>
+            Your in-progress workout will be lost. This can't be undone.
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <button onClick={() => setShowCancelConfirm(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={confirmCancel} className="btn btn-accent">Discard</button>
+          </div>
+        </Modal>
+      )}
       {/* Library panel */}
       {showLib && (
         <div className="w-[280px] flex flex-col flex-shrink-0" style={{background:"var(--paper-2)", borderRight:"1px solid var(--line)"}}>
@@ -3852,7 +4013,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
         <div className="px-6 py-6">
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <button onClick={onCancel} className="btn btn-ghost btn-sm"><ChevronLeft size={14}/> Back</button>
+              <button onClick={requestCancel} className="btn btn-ghost btn-sm"><ChevronLeft size={14}/> Back</button>
               {!showLib && <button onClick={() => setShowLib(true)} className="btn btn-ghost btn-sm"><BookOpen size={13}/> Library</button>}
             </div>
             <span className="mono text-[10px] uppercase tracking-[0.2em]" style={{color:"var(--muted)"}}>{workout.isTemplate ? "New template" : "New workout"} {client && `· for ${client.name}`} · {workout.blocks.length} added</span>
@@ -4024,9 +4185,9 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                     !workout.name ? "Name required" : "Add at least 1 exercise"}
                 </span>
               )}
-              <button onClick={onCancel} className="btn btn-ghost">Cancel</button>
+              <button onClick={requestCancel} className="btn btn-ghost">Cancel</button>
               <button
-                onClick={() => workout.name && workout.blocks.length && onSave(workout)}
+                onClick={handleSaveClick}
                 disabled={!workout.name || !workout.blocks.length}
                 className="btn btn-accent"
                 style={(!workout.name || !workout.blocks.length) ? {opacity: 0.45, cursor: "not-allowed"} : {}}>
@@ -4300,13 +4461,15 @@ function AddClientModal({ onClose, onSave }) {
 /* ============================================================
    MODAL
    ============================================================ */
-function Modal({ onClose, title, children, wide }) {
+function Modal({ onClose, title, children, wide, hideClose }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-6 grow-in" style={{background:"rgba(22,20,15,0.35)", backdropFilter:"blur(4px)"}}>
       <div className="card w-full overflow-hidden flex flex-col" style={{maxWidth: wide ? "640px" : "520px", maxHeight:"90vh", boxShadow:"0 32px 80px rgba(22,20,15,0.3)"}}>
         <div className="flex items-center justify-between px-6 py-4" style={{borderBottom:"1px solid var(--line-2)"}}>
           <h3 className="display text-xl tracking-tight">{title}</h3>
-          <button onClick={onClose} className="p-1.5 rounded hover-lift" style={{color:"var(--muted)"}}><X size={16}/></button>
+          {!hideClose && (
+            <button onClick={onClose} className="p-1.5 rounded hover-lift" style={{color:"var(--muted)"}}><X size={16}/></button>
+          )}
         </div>
         <div className="overflow-y-auto px-6 py-5">
           {children}
