@@ -324,6 +324,11 @@ export default function CoachApp() {
   const [clientTab, setClientTab] = useState("program");
   const [builderCtx, setBuilderCtx] = useState(null);
   const [toast, setToast] = useState(null);
+  // Gates the main view tree so we don't flash Dashboard before reading the
+  // persisted nav blob. sessionStorage can't be read until currentCoachId is
+  // known (async), so a brief blank loading state on cold start is the honest
+  // trade-off vs landing on the wrong page.
+  const [hydrated, setHydrated] = useState(false);
 
   // Tracks which coach's nav blob has been hydrated, so writes don't race the
   // initial read and clobber persisted state with the pre-hydration defaults.
@@ -382,6 +387,7 @@ export default function CoachApp() {
   const currentCoach = coaches.find(c => c.id === currentCoachId);
 
   const switchCoach = (id) => {
+    setHydrated(false);
     if (currentCoachId) clearNav(currentCoachId);
     setCurrentCoachId(id);
     setSelectedClientId(null);
@@ -402,31 +408,36 @@ export default function CoachApp() {
   // validated here — useClients doesn't expose a reliable loading flag, so an
   // empty initial array would force a false fallback to dashboard on every
   // reload. Orphan-client cleanup happens in the render-time effect below.
+  // Flips `hydrated` so the main view tree only mounts after the persisted
+  // state has been applied — prevents a Dashboard flash on cold start.
   useEffect(() => {
     if (!currentCoachId) return;
     if (hydratedFor.current === currentCoachId) return;
 
     const blob = readNav(currentCoachId);
     hydratedFor.current = currentCoachId;
-    if (!blob) return;
 
-    let nextView = "dashboard";
-    let nextClientId = null;
-    let nextTab = "program";
+    if (blob) {
+      let nextView = "dashboard";
+      let nextClientId = null;
+      let nextTab = "program";
 
-    if (typeof blob.view === "string" && PERSISTABLE_VIEWS.has(blob.view)) {
-      nextView = blob.view;
-      if (blob.view === "client" && blob.selectedClientId) {
-        nextClientId = blob.selectedClientId;
+      if (typeof blob.view === "string" && PERSISTABLE_VIEWS.has(blob.view)) {
+        nextView = blob.view;
+        if (blob.view === "client" && blob.selectedClientId) {
+          nextClientId = blob.selectedClientId;
+        }
       }
-    }
-    if (typeof blob.clientTab === "string" && CLIENT_DETAIL_TABS.has(blob.clientTab)) {
-      nextTab = blob.clientTab;
+      if (typeof blob.clientTab === "string" && CLIENT_DETAIL_TABS.has(blob.clientTab)) {
+        nextTab = blob.clientTab;
+      }
+
+      setView(nextView);
+      setSelectedClientId(nextClientId);
+      setClientTab(nextTab);
     }
 
-    setView(nextView);
-    setSelectedClientId(nextClientId);
-    setClientTab(nextTab);
+    setHydrated(true);
   }, [currentCoachId]);
 
   // Render-time orphan fallback: if the persisted client was archived/deleted
@@ -568,14 +579,19 @@ export default function CoachApp() {
           />
         )}
         <main className="flex-1 overflow-y-auto">
-          {view === "dashboard" && (
+          {!hydrated && (
+            <div className="h-full w-full flex items-center justify-center">
+              <div className="display text-lg tracking-tight" style={{color:"var(--ink)", opacity: 0.5}}>loading…</div>
+            </div>
+          )}
+          {hydrated && view === "dashboard" && (
             <Dashboard
               clients={clients} workouts={workouts} logs={logs} attendance={attendance}
               onOpenClient={(id) => { setSelectedClientId(id); setView("client"); }}
               onBuild={(ctx) => { setBuilderCtx(ctx); setView("builder"); }}
             />
           )}
-          {view === "client" && selectedClient && (
+          {hydrated && view === "client" && selectedClient && (
             <ClientDetail
               client={selectedClient}
               tab={clientTab}
@@ -659,7 +675,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "library" && (
+          {hydrated && view === "library" && (
             <ExerciseLibrary
               exercises={exercises} clients={clients}
               onAdd={async (ex) => {
@@ -689,7 +705,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "templates" && (
+          {hydrated && view === "templates" && (
             <TemplatesView
               workouts={workouts} exercises={exercises} clients={clients}
               onBuild={(ctx) => { setBuilderCtx(ctx); setView("builder"); }}
@@ -723,7 +739,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "builder" && (
+          {hydrated && view === "builder" && (
             <WorkoutBuilder
               ctx={builderCtx} exercises={exercises} clients={clients} workouts={workouts} logs={logs}
               notify={notify} unitPref={unitPref}
@@ -742,7 +758,7 @@ export default function CoachApp() {
               }}
             />
           )}
-          {view === "clientView" && selectedClient && (
+          {hydrated && view === "clientView" && selectedClient && (
             <ClientView
               client={selectedClient}
               workouts={workouts.filter(w => w.clientId === selectedClient.id && !w.isTemplate)}
