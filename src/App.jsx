@@ -1066,7 +1066,7 @@ const HELP_CONTENT = [
     id: "getting-started",
     title: "Getting started",
     audience: ["coach", "client"],
-    keywords: ["intro","install","pwa","ipad","launch","first","date","navigation","calendar","sign-in","account","sync"],
+    keywords: ["intro","install","pwa","ipad","launch","first","date","navigation","calendar","sign-in","account","sync","reload","tab","where left off"],
     body: `## What Ledger is
 
 Ledger is a coach-centric personal training app. The coach is the primary user — planning workouts, logging sessions, tracking progress for each client. Clients have a separate, simpler view (Today / History / Log Solo / Notes).
@@ -1089,7 +1089,11 @@ If you already have an account and you're signing in on a new device — or a di
 
 The home screen shows a 7-day strip with today highlighted. Tap any day to switch dates. The chevron arrows step a week at a time, and the date label opens a full date picker for jumping further.
 
-"Today" is determined by your device's local timezone — it rolls over at local midnight, not UTC midnight.`
+"Today" is determined by your device's local timezone — it rolls over at local midnight, not UTC midnight.
+
+## Where you left off
+
+Reload the tab and Ledger lands you back on the screen you were last viewing — same coach, same client, same client tab. This is a per-tab convenience: a brand-new tab still opens on the dashboard, and switching coaches or signing out resets it. Scroll position and other in-view details aren't restored — just the top-level location.`
   },
 
   {
@@ -1197,7 +1201,7 @@ Two exercises with the same name break logging and progress tracking. Ledger ref
     id: "building-workouts",
     title: "Building workouts",
     audience: ["coach"],
-    keywords: ["workout","build","blocks","sets","reps","weight","rest","template","kg","lb","balance"],
+    keywords: ["workout","build","blocks","sets","reps","weight","rest","template","kg","lb","balance","time","duration","hold","isometric","seconds","unilateral","side","left","right","alternating","alt","bilateral","superset","group","pair","ungroup","draft","autosave","resume","discard","unsaved"],
     body: `## Creating a workout
 
 From a client's **Program** tab, tap **+ Build new** to start from scratch or **From template** to start from an existing template.
@@ -1217,6 +1221,40 @@ Drag blocks to reorder. The arrows on the left side of each block also move it u
 ## Per-block lb/kg toggle
 
 Each block has its own little **lb / kg** toggle next to the delete button. Toggling it changes the display unit — the canonical weight is preserved, so flipping a 100 lb block to kg shows 45.4 kg, the same load. Default is lb.
+
+## Reps vs time-based work
+
+Each block has a **Reps / Time** toggle. Most exercises are reps-based and use the toggle's default. Switch to **Time** for isometric or duration-based work — planks, wall sits, dead hangs, breath holds — and the **Reps** field is replaced by a **Duration (s)** field. Planned and logged lines on time-based blocks show a small **Hold** chip so they stand out at a glance.
+
+The toggle is per-block, not per-set: all sets of an exercise share the same work type.
+
+## Unilateral / single-side work
+
+For exercises worked one side at a time, each block has a **Bilateral / Left / Right / Alt** selector. **Bilateral** is the default (both sides together) and matches how most exercises read, so the selector usually doesn't need touching.
+
+- **Left** / **Right** — the block is worked on that side only.
+- **Alt** — sets alternate sides. When you tick **Modified** on the log card, set 1 seeds to **Left**, set 2 to **Right**, and so on. Tap a set's side button to flip just that row.
+
+Non-bilateral blocks show a small **Left**, **Right**, or **Alt** chip on the planned and logged lines.
+
+## Supersets
+
+To pair two blocks as a superset, tap **Group with next** on the first block. The two blocks combine into a single warm-tinted band labeled **Superset**. The same wrapper carries through to the workout view, the client's program, and history, so paired exercises always read as a unit.
+
+To break the pair, tap **Ungroup** in the group's header. Removing one half of a superset — deleting the block or dropping it from the workout — automatically ungroups the partner.
+
+Supersets are pairs only. Three or more blocks can't be grouped into a single set.
+
+## Resuming an unfinished draft
+
+If you start building a new workout and step away — switch tabs, get a call, accidentally close the browser — Ledger keeps a local draft of what you'd entered. The next time you tap **+ Build new**, a prompt appears: **Resume unsaved workout?**, with **Resume** to pick up where you left off, or **Discard** to start clean.
+
+A few honest caveats:
+
+- One draft per coach. Starting another new workout while a draft exists is what triggers the Resume prompt.
+- Editing an existing workout or applying a template doesn't show the prompt — those flows don't go through the draft system.
+- If an exercise in the draft has since been removed from the library, or its client has been archived, Ledger drops those pieces on Resume and tells you what changed.
+- The draft is cleared once you save the workout out of the builder, or when you pick Discard.
 
 ## Balance suggestion
 
@@ -1261,7 +1299,7 @@ Open Templates from the sidebar. Tap a template to open it in the builder. Save 
     id: "logging",
     title: "Logging sessions",
     audience: ["coach", "client"],
-    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit"],
+    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit","hold","duration","time","side","left","right","alt","alternating"],
     body: `## The single-entry-per-exercise model
 
 Ledger uses **one log per exercise**, not one log per set. Most of the time, all sets of an exercise are the same — same weight, same reps. Logging a single entry covers the whole exercise.
@@ -1284,9 +1322,21 @@ Attendance is separate from logging. You can mark a session present without logg
 
 If the client did the workout exactly as written, just tap **Mark done** on each block. Fill in actual sets / reps / weight if anything differed.
 
+## Logging time-based (Hold) work
+
+For blocks set to **Time** in the builder, the log card swaps **Reps** for **Duration (s)** — the flow is otherwise identical. Enter the seconds actually held, confirm sets and weight if needed, and tap **Mark done**. Completed time-based logs show their summary with the planned duration and the **Hold** chip.
+
+Holds without weight still record their time — useful for tracking plank duration, dead hang time, or breathing exercises without inventing a load.
+
 ## Logging "Modified"
 
 Tap **Modified** to expand to per-set entry. Each set has its own reps and weight inputs. Add or remove rows as needed.
+
+## Per-set side on alternating blocks
+
+Blocks set to **Alt** carry side metadata on the log. With **Modified** off, the log simply records that the sets alternated. With **Modified** on, each set row shows a small **Left** or **Right** button next to its number — seeded as 1 = Left, 2 = Right, 3 = Left, and so on. Tap any set's button to flip just that row; new rows added with **+ Add set** continue the L/R pattern from there.
+
+Blocks set to a fixed **Left** or **Right** don't show per-set side controls — the whole block is already one-sided.
 
 ## Editing or undoing a log
 
