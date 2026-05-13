@@ -13,7 +13,7 @@ Project context for future Claude Code sessions working on Ledger.
 
 - **Supabase** (cloud-backed) is the source of truth. Coaches, clients, exercises, workouts (with nested `workout_blocks`), logs, attendance, measurements, client notes, and profiles all live in Supabase tables with RLS active.
 - The only `localStorage` key still in use is `coach:version` — a sentinel kept around for any future migration. All other localStorage reads/writes were removed in the Phase 3 close-out cleanup.
-- Schema is managed by Supabase migrations in `supabase/migrations/` (001–025 as of writing). The localStorage `SCHEMA_VERSION` sentinel is preserved at v7 but is effectively idle.
+- Schema is managed by Supabase migrations in `supabase/migrations/` (001–029 as of writing; 027 skipped). The localStorage `SCHEMA_VERSION` sentinel is preserved at v7 but is effectively idle.
 
 ## Auth
 
@@ -35,7 +35,7 @@ Project context for future Claude Code sessions working on Ledger.
 - Templates, attendance tracking, archive (don't delete) for clients and coaches.
 - Measurements tab with bilateral arm/thigh, body fat %, and circumferences.
 - Recent exercises panel showing the last 2 coach-built sessions.
-- In-app User Guide accessed via the "?" icon in `TopBar`. (Note: User Guide copy still references the old localStorage model in places; updating that copy is a future polish task.)
+- In-app User Guide accessed via the "?" icon in `TopBar`.
 
 ## Design system
 
@@ -57,12 +57,11 @@ Project context for future Claude Code sessions working on Ledger.
 
 ## Current phase
 
-- **Phase 3 closing out.** Workouts migration complete (W-1 reads, W-2a writes, W-3 logs+attendance, W-4 completion UI). Multi-profile complete. Documentation pass is part of close-out.
+- **Phase 4: Commercial Hardening & UX Refinement.** Targeting production-readiness for real beta users before payment infrastructure (Phase 5). Shipped: three workout primitives (supersets mig 026, unilateral mig 028, isometric mig 029), delete-workout UI (PR #53), navigation persistence (PR #54), builder draft autosave (PR #55), User Guide accuracy + discoverability refresh (PRs #56, #57). Open: HistoryTab coach-personal expand parity, ProgressTab metrics rework, unassigned workout shelf, ClientNotesTab UX refinement, onboarding flow, per-set logging UI (foundational primitive — next major work).
 
 ## Future phases
 
-- **Phase 4:** payment gating with Stripe (per-seat SaaS model TBD against multi-profile reality), SMTP upgrade from Supabase built-in service.
-- **Polish (unscheduled):** `ClientNotesTab` UX refinement.
+- **Phase 5:** payment gating with Stripe (per-seat SaaS model TBD against multi-profile reality), SMTP upgrade from Supabase built-in service as a prerequisite.
 - **Deferred from the Phase 3 plan, not currently scheduled:** `syncService.js` with dirty queue, sync indicator, conflict resolution per `MIGRATION_PLAN.md` §7, password reset UI, magic-link auth, Phase 2.5 test harness, multi-coach-per-client (`client_collaborators` table), template marketplace.
 
 See `MIGRATION_PLAN.md` for the original migration plan and the "Phase 3 actual outcome" appendix at the end for what shipped vs. what was deferred.
