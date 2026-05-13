@@ -1201,7 +1201,7 @@ Two exercises with the same name break logging and progress tracking. Ledger ref
     id: "building-workouts",
     title: "Building workouts",
     audience: ["coach"],
-    keywords: ["workout","build","blocks","sets","reps","weight","rest","template","kg","lb","balance","time","duration","hold","isometric","seconds","unilateral","side","left","right","alternating","alt","bilateral","superset","group","pair","ungroup","draft","autosave","resume","discard","unsaved"],
+    keywords: ["workout","build","blocks","sets","reps","weight","rest","template","kg","lb","balance","time","duration","hold","isometric","seconds","unilateral","side","bilateral","superset","group","pair","ungroup","draft","autosave","resume","discard","unsaved","notes"],
     body: `## Creating a workout
 
 From a client's **Program** tab, tap **+ Build new** to start from scratch or **From template** to start from an existing template.
@@ -1230,12 +1230,11 @@ The toggle is per-block, not per-set: all sets of an exercise share the same wor
 
 ## Unilateral / single-side work
 
-For exercises worked one side at a time, each block has a **Bilateral / Left / Right / Alt** selector. **Bilateral** is the default (both sides together) and matches how most exercises read, so the selector usually doesn't need touching.
+Each block has a **Bilateral / Unilateral** selector. **Bilateral** is the default (both sides working together) and fits most exercises. **Unilateral** covers anything worked one side at a time — split squats, single-arm rows, alternating lunges, step-ups.
 
-- **Left** / **Right** — the block is worked on that side only.
-- **Alt** — sets alternate sides. When you tick **Modified** on the log card, set 1 seeds to **Left**, set 2 to **Right**, and so on. Tap a set's side button to flip just that row.
+The set count never changes based on the selector. **3 sets is 3 rows**, whether the exercise is bilateral or unilateral. If a unilateral exercise alternates (lunges) or runs all-one-side-then-the-other (split squats), that's an execution detail — capture it in the exercise notes if it matters.
 
-Non-bilateral blocks show a small **Left**, **Right**, or **Alt** chip on the planned and logged lines.
+Unilateral blocks show a small **Unilateral** chip on the planned and logged lines.
 
 ## Supersets
 
@@ -1299,7 +1298,7 @@ Open Templates from the sidebar. Tap a template to open it in the builder. Save 
     id: "logging",
     title: "Logging sessions",
     audience: ["coach", "client"],
-    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit","hold","duration","time","side","left","right","alt","alternating"],
+    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit","hold","duration","time"],
     body: `## The single-entry-per-exercise model
 
 Ledger uses **one log per exercise**, not one log per set. Most of the time, all sets of an exercise are the same — same weight, same reps. Logging a single entry covers the whole exercise.
@@ -1331,12 +1330,6 @@ Holds without weight still record their time — useful for tracking plank durat
 ## Logging "Modified"
 
 Tap **Modified** to expand to per-set entry. Each set has its own reps and weight inputs. Add or remove rows as needed.
-
-## Per-set side on alternating blocks
-
-Blocks set to **Alt** carry side metadata on the log. With **Modified** off, the log simply records that the sets alternated. With **Modified** on, each set row shows a small **Left** or **Right** button next to its number — seeded as 1 = Left, 2 = Right, 3 = Left, and so on. Tap any set's button to flip just that row; new rows added with **+ Add set** continue the L/R pattern from there.
-
-Blocks set to a fixed **Left** or **Right** don't show per-set side controls — the whole block is already one-sided.
 
 ## Editing or undoing a log
 
@@ -2428,7 +2421,6 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
 /** Pre-filled log card — one-tap "Mark done" with optional Modified expansion */
 function LogCard({ block, ex, onLog }) {
   const unit = block.unit || "lb";
-  const isAlt = block.side === "alternating";
   const workType = block.work_type || "reps";
   const isTime = workType === "time";
   const [actualSets, setActualSets] = useState(block.sets);
@@ -2448,7 +2440,6 @@ function LogCard({ block, ex, onLog }) {
         const row = isTime
           ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
           : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
-        if (isAlt) row.side = i % 2 === 0 ? "left" : "right";
         rows.push(row);
       }
       setPerSet(rows);
@@ -2457,12 +2448,10 @@ function LogCard({ block, ex, onLog }) {
   };
 
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const flipSide = (i) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, side: s.side === "left" ? "right" : "left"} : s));
   const addRow = () => {
     const row = isTime
       ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
       : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
-    if (isAlt) row.side = perSet.length % 2 === 0 ? "left" : "right";
     setPerSet([...perSet, row]);
   };
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
@@ -2475,13 +2464,11 @@ function LogCard({ block, ex, onLog }) {
         actualSets: perSet.length,
         actualReps: null,
         actualWeight: null,
-        perSet: perSet.map(s => {
-          const out = isTime
+        perSet: perSet.map(s => (
+          isTime
             ? { actualSeconds: s.actualSeconds, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
-          if (s.side) out.side = s.side;
-          return out;
-        }),
+            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
+        )),
         notes,
         source: "coach",
         unit,
@@ -2549,14 +2536,6 @@ function LogCard({ block, ex, onLog }) {
           {perSet.map((s, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-              {isAlt && (
-                <button onClick={() => flipSide(i)} type="button"
-                  className="mono text-[10px] uppercase tracking-wide rounded px-2 py-1"
-                  title="Tap to flip side"
-                  style={{background:"var(--paper-2)", color:"var(--ink-2)", border:"1px solid var(--line-2)", minWidth:"54px"}}>
-                  {s.side === "right" ? "Right" : "Left"}
-                </button>
-              )}
               {isTime ? (
                 <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
                   className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
@@ -4073,6 +4052,17 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
             </div>
           </div>
 
+          <div className="mb-6">
+            <label className="mono text-[10px] uppercase tracking-widest block mb-1" style={{color:"var(--muted)"}}>Notes</label>
+            <textarea
+              value={workout.notes || ""}
+              onChange={e => setWorkout({...workout, notes: e.target.value})}
+              placeholder="Session notes (optional)"
+              rows={2}
+              className="field"
+            />
+          </div>
+
           {recentSessions.length > 0 && (
             <div className="card mb-4 overflow-hidden" style={{background:"var(--paper-2)"}}>
               <button onClick={() => setShowRecent(!showRecent)}
@@ -4309,10 +4299,8 @@ function UnitToggle({ unit, onChange }) {
 }
 
 const SIDE_OPTIONS = [
-  { value: "bilateral",   label: "Bilateral" },
-  { value: "left",        label: "Left" },
-  { value: "right",       label: "Right" },
-  { value: "alternating", label: "Alt" },
+  { value: "bilateral",  label: "Bilateral" },
+  { value: "unilateral", label: "Unilateral" },
 ];
 
 function SideToggle({ side, onChange }) {
@@ -4333,11 +4321,10 @@ function SideToggle({ side, onChange }) {
 }
 
 function SideChip({ side }) {
-  if (!side || side === "bilateral") return null;
-  const label = side === "alternating" ? "Alt" : side[0].toUpperCase() + side.slice(1);
+  if (side !== "unilateral") return null;
   return (
     <span className="chip" style={{fontSize:"10px", padding:"2px 8px", background:"var(--paper-2)", color:"var(--ink-2)", borderColor:"var(--line-2)"}}>
-      {label}
+      Unilateral
     </span>
   );
 }
@@ -5055,7 +5042,6 @@ function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
 
 function ClientLogCard({ block, ex, onLog, onRemove }) {
   const unit = block.unit || "lb";
-  const isAlt = block.side === "alternating";
   const workType = block.work_type || "reps";
   const isTime = workType === "time";
   const [actualSets, setActualSets] = useState(block.sets);
@@ -5074,7 +5060,6 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
         const row = isTime
           ? { duration: block.durationSeconds, actualSeconds: "", weight: "" }
           : { reps: block.reps, weight: "" };
-        if (isAlt) row.side = i % 2 === 0 ? "left" : "right";
         rows.push(row);
       }
       setPerSet(rows);
@@ -5082,12 +5067,10 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
     setModified(!modified);
   };
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const flipSide = (i) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, side: s.side === "left" ? "right" : "left"} : s));
   const addRow = () => {
     const row = isTime
       ? { duration: block.durationSeconds, actualSeconds: "", weight: "" }
       : { reps: block.reps, weight: "" };
-    if (isAlt) row.side = perSet.length % 2 === 0 ? "left" : "right";
     setPerSet([...perSet, row]);
   };
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
@@ -5097,13 +5080,11 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
       onLog({
         completed: true, mode: "modified",
         actualSets: perSet.length, actualReps: null, actualWeight: null,
-        perSet: perSet.map(s => {
-          const out = isTime
+        perSet: perSet.map(s => (
+          isTime
             ? { actualSeconds: s.actualSeconds, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) };
-          if (s.side) out.side = s.side;
-          return out;
-        }),
+            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
+        )),
         notes, source: "client", unit,
       });
     } else {
@@ -5163,14 +5144,6 @@ function ClientLogCard({ block, ex, onLog, onRemove }) {
           {perSet.map((s, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-              {isAlt && (
-                <button onClick={() => flipSide(i)} type="button"
-                  className="mono text-[10px] uppercase tracking-wide rounded px-2 py-1"
-                  title="Tap to flip side"
-                  style={{background:"var(--paper-2)", color:"var(--ink-2)", border:"1px solid var(--line-2)", minWidth:"54px"}}>
-                  {s.side === "right" ? "Right" : "Left"}
-                </button>
-              )}
               {isTime ? (
                 <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
                   className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>

@@ -18,7 +18,7 @@ export function convertFromLb(weightLb, unit) {
 
 const WORKOUT_SELECT = `
   id, coach_id, client_id, name, date, is_template,
-  is_self_directed, completed_at,
+  is_self_directed, completed_at, notes,
   workout_blocks (
     id, workout_id, exercise_id, position, sets, reps,
     weight_lb, rest_seconds, unit, notes, side,
@@ -36,7 +36,7 @@ function blockFromRow(row) {
     rest: row.rest_seconds,
     weight: convertFromLb(row.weight_lb, row.unit),
     unit: row.unit,
-    notes: row.notes,
+    notes: row.notes ?? null,
     side: row.side ?? 'bilateral',
     work_type: row.work_type ?? 'reps',
     durationSeconds: row.duration_seconds ?? null,
@@ -60,6 +60,7 @@ export function fromRow(row) {
     isTemplate: row.is_template,
     isSelfDirected: row.is_self_directed,
     completedAt: row.completed_at,
+    notes: row.notes ?? null,
     blocks,
   };
 }
@@ -74,6 +75,7 @@ export function toWorkoutRow(workout) {
   if ('isTemplate' in workout) out.is_template = workout.isTemplate;
   if ('isSelfDirected' in workout) out.is_self_directed = workout.isSelfDirected;
   if ('completedAt' in workout) out.completed_at = workout.completedAt;
+  if ('notes' in workout) out.notes = workout.notes;
   return out;
 }
 
@@ -87,7 +89,7 @@ export function toBlockRow(block, workoutId, position) {
     weight_lb: convertToLb(block.weight, block.unit),
     rest_seconds: block.rest,
     unit: block.unit,
-    notes: block.notes,
+    notes: block.notes ?? null,
     side: block.side ?? 'bilateral',
     work_type: block.work_type ?? 'reps',
     duration_seconds: block.durationSeconds ?? null,
