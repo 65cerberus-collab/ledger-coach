@@ -12,19 +12,38 @@
 -- We drop that constraint and recreate it with the collapsed value
 -- set under the same name.
 --
--- No data backfill: per repo convention any stray left/right/
--- alternating rows in dev/preview environments are acceptable to
--- surface as a migration failure on the new CHECK, and will be
--- resolved manually.
+-- Legacy rows with side in (left/right/alternating) are converted
+-- to 'unilateral' in-place, with a descriptive note appended to
+-- workout_blocks.notes preserving the original intent. This happens
+-- in the window between the old constraint being dropped and the
+-- new one being added.
 
 alter table public.workouts
-  add column notes text;
+  add column if not exists notes text;
 
 alter table public.workout_blocks
-  add column notes text;
+  add column if not exists notes text;
 
 alter table public.workout_blocks
   drop constraint workout_blocks_side_check;
+
+update public.workout_blocks
+set
+  notes = case
+    when notes is null or notes = '' then
+      case side
+        when 'left' then 'Left side only'
+        when 'right' then 'Right side only'
+        when 'alternating' then 'Alternating L/R'
+      end
+    else notes || E'\n' || case side
+      when 'left' then 'Left side only'
+      when 'right' then 'Right side only'
+      when 'alternating' then 'Alternating L/R'
+    end
+  end,
+  side = 'unilateral'
+where side in ('left', 'right', 'alternating');
 
 alter table public.workout_blocks
   add constraint workout_blocks_side_check
