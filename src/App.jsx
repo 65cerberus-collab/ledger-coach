@@ -2678,21 +2678,29 @@ function LogCard({ block, ex, onLog }) {
 
 /* -----------------------------  HISTORY TAB  ----------------------------- */
 function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitPref = "lb" }) {
+  const [openId, setOpenId] = useState(null);
   const past = clientWorkouts.filter(w => w.date <= today()).sort((a,b) => b.date.localeCompare(a.date));
   const totalExercises = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId)).length;
   const attendedCount = attendance.filter(a => a.status === "present" && clientWorkouts.some(w => w.id === a.workoutId)).length;
-
-  // Volume calculation — uses actualWeight * actualSets * actualReps, or per-set sum if modified
-  const volumeFor = (log) => {
+  // For time-based blocks, weight defaults to 1 so an unweighted hold still contributes
+  // its time-under-tension to volume.
+  const volumeFor = (log, block) => {
+    const isTime = block?.work_type === "time";
     if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0), 0);
+      return log.perSet.reduce((acc, s) => isTime
+        ? acc + (parseInt(s.actualSeconds) || 0) * (parseFloat(s.weight) || 1)
+        : acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0)
+      , 0);
     }
     const sets = Number(log.actualSets) || 0;
     const reps = parseInt(log.actualReps) || 0;
+    if (isTime) {
+      const wt = parseFloat(log.actualWeight) || 1;
+      return sets * reps * wt;
+    }
     const wt = Number(log.actualWeight) || 0;
     return sets * reps * wt;
   };
-
   return (
     <div>
       <div className="grid grid-cols-3 gap-4 mb-8">
@@ -2700,33 +2708,125 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
         <StatCard label="Exercises logged" value={totalExercises} />
         <StatCard label="Weeks training" value={Math.max(1, Math.floor((Date.now() - new Date(client.since+"T00:00:00").getTime()) / (1000*60*60*24*7)))} />
       </div>
-
       <h2 className="display text-2xl tracking-tight mb-4">Full timeline</h2>
       {past.length === 0 ? (
         <div className="card p-6 text-sm" style={{color:"var(--muted)"}}>No completed workouts yet.</div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
             const att = attendance.find(a => a.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l, w.blocks.find(b => b.exId === l.exId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
+            const isOpen = openId === w.id;
             return (
-              <div key={w.id} className="card p-4 hover-lift flex items-center gap-4">
-                <div className="text-center w-12 flex-shrink-0">
-                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{new Date(w.date+"T00:00:00").toLocaleDateString(undefined,{month:'short'})}</div>
-                  <div className="display text-xl tabular">{new Date(w.date+"T00:00:00").getDate()}</div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium">{w.name}</div>
-                  <div className="text-xs mono uppercase tracking-wide" style={{color:"var(--muted)"}}>
-                    {w.blocks.length} exercises · {wLogs.length} logged · {att?.status || "no attendance"}
+              <div key={w.id} className="card overflow-hidden">
+                <button onClick={() => setOpenId(isOpen ? null : w.id)} className="w-full p-4 text-left">
+                  <div className="flex items-center gap-4">
+                    <div className="text-center w-12 flex-shrink-0">
+                      <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{new Date(w.date+"T00:00:00").toLocaleDateString(undefined,{month:'short'})}</div>
+                      <div className="display text-xl tabular">{new Date(w.date+"T00:00:00").getDate()}</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-medium truncate">{w.name}</div>
+                      <div className="mono text-[10px] uppercase tracking-wider mt-0.5" style={{color:"var(--muted)"}}>
+                        {w.blocks.length} exercises · {wLogs.length} logged · {att?.status || "no attendance"}
+                      </div>
+                    </div>
+                    {volumeLb > 0 && (
+                      <div className="text-right hidden sm:block">
+                        <div className="display text-lg tabular">{Math.round(volumeDisplay).toLocaleString()}</div>
+                        <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>{unitLabel(unitPref)} volume</div>
+                      </div>
+                    )}
+                    <ChevronRight size={16} style={{transition:"transform .2s", transform: isOpen ? "rotate(90deg)":"rotate(0)", color:"var(--muted)"}}/>
                   </div>
-                </div>
-                {volumeLb > 0 && (
-                  <div className="text-right">
-                    <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>Volume</div>
-                    <div className="display text-lg tabular">{Math.round(volumeDisplay).toLocaleString()}<span className="text-xs" style={{color:"var(--muted)"}}>{unitLabel(unitPref)}</span></div>
+                </button>
+                {isOpen && (
+                  <div className="px-4 pb-4 slide-in">
+                    <div className="divider mb-3"/>
+                    <div className="space-y-2">
+                      {(() => {
+                      const renderHistBlock = (b, i) => {
+                        const ex = exercises.find(e => e.id === b.exId);
+                        if (!ex) return null;
+                        const log = wLogs.find(l => l.exId === b.exId);
+                        const bUnit = b.unit || "lb";
+                        const logUnit = log?.unit || bUnit;
+                        const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                        const isTime = b.work_type === "time";
+                        return (
+                          <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
+                            <div className="flex items-start gap-2.5 mb-2">
+                              <span className={`dot mt-1.5 ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[14px] font-medium">{ex.name}</span>
+                                  <WorkTypeChip workType={b.work_type}/>
+                                  {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+                                </div>
+                                <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
+                                  {isTime
+                                    ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                    : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
+                                </div>
+                                {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
+                              </div>
+                            </div>
+                            {log ? (
+                              log.mode === "modified" && log.perSet ? (
+                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
+                                  {log.perSet.map((s, si) => (
+                                    <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
+                                      <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
+                                      <div className="text-[13px] font-medium">
+                                        {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
+                                        {isTime ? `${s.actualSeconds ?? s.duration ?? "—"}s` : s.reps}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
+                                  <span className="text-[13px] font-medium">
+                                    {isTime
+                                      ? `${log.actualSets ?? b.sets} × ${log.actualReps ?? (b.durationSeconds ?? "—")}s hold`
+                                      : `${log.actualSets ?? b.sets} × ${log.actualReps ?? b.reps}`}
+                                    {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
+                                  </span>
+                                  {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
+                                </div>
+                              )
+                            ) : (
+                              <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
+                                Not logged
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+                      return groupRenderItems(w.blocks).map((item, idx) => {
+                        if (item.type === 'group') {
+                          const [b1, b2] = item.blocks;
+                          const i1 = w.blocks.indexOf(b1);
+                          const i2 = w.blocks.indexOf(b2);
+                          return (
+                            <div key={`g-${b1.groupId}`} className="rounded-lg p-2"
+                              style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                              <div className="px-1 pb-2"><SupersetChip/></div>
+                              <div className="space-y-2">
+                                {renderHistBlock(b1, i1)}
+                                {renderHistBlock(b2, i2)}
+                              </div>
+                            </div>
+                          );
+                        }
+                        const b = item.block;
+                        const i = w.blocks.indexOf(b);
+                        return renderHistBlock(b, i);
+                      });
+                    })()}
+                    </div>
                   </div>
                 )}
               </div>
