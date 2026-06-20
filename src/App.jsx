@@ -3846,7 +3846,6 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   const entryHasIntent = !!(ctx?.prefill || (ctx?.workoutId && existing));
   const [restoreCandidate, setRestoreCandidate] = useState(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [showNoClientConfirm, setShowNoClientConfirm] = useState(false);
 
   const isMeaningful = (w) => !!(w?.name?.trim() || (w?.blocks?.length > 0));
 
@@ -3986,16 +3985,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
       return;
     }
     if (!workout.blocks.length) return;
-    // Soft nudge before saving an unassigned workout with no source template.
-    if (!workout.clientId && !workout.sourceTemplateName) {
-      setShowNoClientConfirm(true);
-      return;
-    }
-    await finalizeAndSave();
-  };
-
-  const confirmNoClientSave = async () => {
-    setShowNoClientConfirm(false);
+    if (!workout.clientId && !workout.sourceTemplateName) return; // require a client or a template
     await finalizeAndSave();
   };
 
@@ -4123,17 +4113,6 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
           <div className="flex items-center gap-2 justify-end">
             <button onClick={() => setShowCancelConfirm(false)} className="btn btn-ghost">Cancel</button>
             <button onClick={confirmCancel} className="btn btn-accent">Discard</button>
-          </div>
-        </Modal>
-      )}
-      {showNoClientConfirm && (
-        <Modal onClose={() => setShowNoClientConfirm(false)} title="Save without a client?">
-          <p className="text-sm mb-5" style={{color:"var(--ink-2)"}}>
-            This workout isn't assigned to anyone. You can still save it and assign a client later.
-          </p>
-          <div className="flex items-center gap-2 justify-end">
-            <button onClick={() => setShowNoClientConfirm(false)} className="btn btn-ghost">Cancel</button>
-            <button onClick={confirmNoClientSave} className="btn btn-accent">Save anyway</button>
           </div>
         </Modal>
       )}
@@ -4394,13 +4373,16 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 // when left blank, so they only need at least one block.
                 const nameMissing = workout.isTemplate && !workout.name;
                 const blocksMissing = !workout.blocks.length;
-                const cannotSave = nameMissing || blocksMissing;
+                const clientOrTemplateMissing = !workout.isTemplate && !workout.clientId && !workout.sourceTemplateName;
+                const cannotSave = nameMissing || blocksMissing || clientOrTemplateMissing;
                 return (
                   <>
                     {cannotSave && (
                       <span className="text-xs mono uppercase tracking-wider" style={{color:"var(--muted)"}}>
                         {nameMissing && blocksMissing ? "Name + at least 1 exercise needed" :
-                          nameMissing ? "Name required" : "Add at least 1 exercise"}
+                          nameMissing ? "Name required" :
+                          blocksMissing ? "Add at least 1 exercise" :
+                          "Add a client or use a template"}
                       </span>
                     )}
                     <button onClick={requestCancel} className="btn btn-ghost">Cancel</button>
