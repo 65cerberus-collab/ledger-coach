@@ -229,6 +229,43 @@ const movementClass = (m) => ({ push:"tag-dot-push", pull:"tag-dot-pull", squat:
 const prettyDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
+// Month names for default-name date labels. We format by splitting the
+// YYYY-MM-DD string rather than `new Date(str)` — bare-date parsing is UTC and
+// can render the previous local day (timezone off-by-one).
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const formatNameDate = (dateStr) => {
+  const [y, m, d] = (dateStr || "").split("-");
+  const mi = parseInt(m, 10) - 1;
+  if (!y || !d || mi < 0 || mi > 11) return dateStr || "";
+  return `${MONTH_ABBR[mi]} ${parseInt(d, 10)}, ${y}`;
+};
+
+// "Maya Okafor" -> "Maya O.", single-token "Maya" -> "Maya".
+const clientLabelFromName = (name = "") => {
+  const tokens = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return "";
+  if (tokens.length === 1) return tokens[0];
+  const last = tokens[tokens.length - 1];
+  return `${tokens[0]} ${last[0]}.`;
+};
+
+// Compose a default workout name from optional template / client / date parts.
+const buildDefaultWorkoutName = ({ templateName, clientLabel, dateStr }) => {
+  const dateLabel = formatNameDate(dateStr);
+  if (templateName) return `${templateName}${clientLabel ? ` — ${clientLabel}` : ""} — ${dateLabel}`;
+  if (clientLabel) return `${dateLabel} — ${clientLabel}`;
+  return dateLabel;
+};
+
+// Make `base` unique against existing names by appending " (2)", " (3)", …
+const uniqueWorkoutName = (base, existingNames = []) => {
+  const taken = new Set(existingNames);
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base} (${n})`)) n++;
+  return `${base} (${n})`;
+};
+
 // Group blocks into render items so a superset (two blocks sharing groupId)
 // renders as a single visual unit. Solo blocks pass through unchanged.
 // Render order preserves the original workout order; a group is positioned
@@ -618,6 +655,14 @@ export default function CoachApp() {
                   blocks: template.blocks.map(b => ({...b})), // deep-copy
                 };
                 if (mode === "quick") {
+                  cloned.name = uniqueWorkoutName(
+                    buildDefaultWorkoutName({
+                      templateName: template.name,
+                      clientLabel: clientLabelFromName(selectedClient.name),
+                      dateStr: date,
+                    }),
+                    workouts.map(w => w.name).filter(Boolean)
+                  );
                   try {
                     await createWorkout(cloned);
                     notify(`"${template.name}" assigned to ${selectedClient.name.split(" ")[0]}`);
@@ -626,7 +671,11 @@ export default function CoachApp() {
                     alert("Failed to assign template. Please try again.");
                   }
                 } else {
-                  // Edit-first: open builder pre-filled, save adds it
+                  // Edit-first: open builder pre-filled, save adds it. Leave the
+                  // name blank so the builder auto-names on save; stash the source
+                  // template name (transient, never persisted) for that default.
+                  cloned.name = "";
+                  cloned.sourceTemplateName = template.name;
                   setBuilderCtx({ workoutId: cloned.id, clientId: selectedClient.id, date, prefill: cloned });
                   setView("builder");
                 }
@@ -719,6 +768,7 @@ export default function CoachApp() {
                 }
               }}
               onAssign={async (template, clientId, date) => {
+                const c = clients.find(cl => cl.id === clientId);
                 const cloned = {
                   ...template,
                   id: uid("w"),
@@ -728,9 +778,16 @@ export default function CoachApp() {
                   isTemplate: false,
                   blocks: template.blocks.map(b => ({...b})),
                 };
+                cloned.name = uniqueWorkoutName(
+                  buildDefaultWorkoutName({
+                    templateName: template.name,
+                    clientLabel: c ? clientLabelFromName(c.name) : null,
+                    dateStr: date,
+                  }),
+                  workouts.map(w => w.name).filter(Boolean)
+                );
                 try {
                   await createWorkout(cloned);
-                  const c = clients.find(cl => cl.id === clientId);
                   notify(`"${template.name}" assigned to ${c?.name.split(" ")[0] || "client"}`);
                 } catch (err) {
                   console.error("createWorkout failed", err);
@@ -1205,6 +1262,8 @@ Two exercises with the same name break logging and progress tracking. Ledger ref
     body: `## Creating a workout
 
 From a client's **Program** tab, tap **+ Build new** to start from scratch or **From template** to start from an existing template.
+
+Leave the name blank and Ledger auto-names the workout from its template, client, and date when you save (templates still need a name you type).
 
 ## Blocks
 
@@ -3787,6 +3846,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   const entryHasIntent = !!(ctx?.prefill || (ctx?.workoutId && existing));
   const [restoreCandidate, setRestoreCandidate] = useState(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showNoClientConfirm, setShowNoClientConfirm] = useState(false);
 
   const isMeaningful = (w) => !!(w?.name?.trim() || (w?.blocks?.length > 0));
 
@@ -3896,14 +3956,47 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
     onCancel?.();
   };
 
-  const handleSaveClick = async () => {
-    if (!workout.name || !workout.blocks.length) return;
+  // Auto-name blank non-template workouts from template/client/date, make the
+  // name unique against existing workouts, then save. Templates save as-is.
+  const finalizeAndSave = async () => {
+    let toSave = workout;
+    if (!workout.isTemplate && !workout.name) {
+      const labelClient = workout.clientId ? clients.find(c => c.id === workout.clientId) : null;
+      const base = buildDefaultWorkoutName({
+        templateName: workout.sourceTemplateName || null,
+        clientLabel: labelClient ? clientLabelFromName(labelClient.name) : null,
+        dateStr: workout.date,
+      });
+      const name = uniqueWorkoutName(base, workouts.filter(w => w.id !== workout.id).map(w => w.name).filter(Boolean));
+      toSave = { ...workout, name };
+    }
     try {
-      await onSave(workout);
+      await onSave(toSave);
       clearDraft();
     } catch {
       // onSave already surfaced the error to the user; keep the draft.
     }
+  };
+
+  const handleSaveClick = async () => {
+    if (workout.isTemplate) {
+      // Templates keep the current behavior: a typed name is required.
+      if (!workout.name || !workout.blocks.length) return;
+      await finalizeAndSave();
+      return;
+    }
+    if (!workout.blocks.length) return;
+    // Soft nudge before saving an unassigned workout with no source template.
+    if (!workout.clientId && !workout.sourceTemplateName) {
+      setShowNoClientConfirm(true);
+      return;
+    }
+    await finalizeAndSave();
+  };
+
+  const confirmNoClientSave = async () => {
+    setShowNoClientConfirm(false);
+    await finalizeAndSave();
   };
 
   // Recent exercises: pull from this client's last 2 coach-built sessions
@@ -4030,6 +4123,17 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
           <div className="flex items-center gap-2 justify-end">
             <button onClick={() => setShowCancelConfirm(false)} className="btn btn-ghost">Cancel</button>
             <button onClick={confirmCancel} className="btn btn-accent">Discard</button>
+          </div>
+        </Modal>
+      )}
+      {showNoClientConfirm && (
+        <Modal onClose={() => setShowNoClientConfirm(false)} title="Save without a client?">
+          <p className="text-sm mb-5" style={{color:"var(--ink-2)"}}>
+            This workout isn't assigned to anyone. You can still save it and assign a client later.
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <button onClick={() => setShowNoClientConfirm(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={confirmNoClientSave} className="btn btn-accent">Save anyway</button>
           </div>
         </Modal>
       )}
@@ -4285,20 +4389,31 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
 
           <div className="sticky bottom-0 py-4" style={{background:"linear-gradient(transparent, var(--paper) 30%)"}}>
             <div className="flex items-center gap-3 justify-end">
-              {(!workout.name || !workout.blocks.length) && (
-                <span className="text-xs mono uppercase tracking-wider" style={{color:"var(--muted)"}}>
-                  {!workout.name && !workout.blocks.length ? "Name + at least 1 exercise needed" :
-                    !workout.name ? "Name required" : "Add at least 1 exercise"}
-                </span>
-              )}
-              <button onClick={requestCancel} className="btn btn-ghost">Cancel</button>
-              <button
-                onClick={handleSaveClick}
-                disabled={!workout.name || !workout.blocks.length}
-                className="btn btn-accent"
-                style={(!workout.name || !workout.blocks.length) ? {opacity: 0.45, cursor: "not-allowed"} : {}}>
-                <Check size={15}/> Save {workout.isTemplate ? "template" : "workout"}
-              </button>
+              {(() => {
+                // Templates still require a typed name; non-templates auto-name
+                // when left blank, so they only need at least one block.
+                const nameMissing = workout.isTemplate && !workout.name;
+                const blocksMissing = !workout.blocks.length;
+                const cannotSave = nameMissing || blocksMissing;
+                return (
+                  <>
+                    {cannotSave && (
+                      <span className="text-xs mono uppercase tracking-wider" style={{color:"var(--muted)"}}>
+                        {nameMissing && blocksMissing ? "Name + at least 1 exercise needed" :
+                          nameMissing ? "Name required" : "Add at least 1 exercise"}
+                      </span>
+                    )}
+                    <button onClick={requestCancel} className="btn btn-ghost">Cancel</button>
+                    <button
+                      onClick={handleSaveClick}
+                      disabled={cannotSave}
+                      className="btn btn-accent"
+                      style={cannotSave ? {opacity: 0.45, cursor: "not-allowed"} : {}}>
+                      <Check size={15}/> Save {workout.isTemplate ? "template" : "workout"}
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
