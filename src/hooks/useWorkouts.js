@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
 
 const LB_PER_KG = 2.20462;
+const M_PER_YD = 0.9144;
 const round2 = (n) => Math.round(n * 100) / 100;
 
 export function convertToLb(weight, unit) {
@@ -16,13 +17,35 @@ export function convertFromLb(weightLb, unit) {
   return weightLb;
 }
 
+// Distance is stored canonically in meters; display/entry is m or yd.
+export function convertToMeters(value, unit) {
+  if (value == null || value === '') return null;
+  if (unit === 'yd') return round2(Number(value) * M_PER_YD);
+  return round2(Number(value));
+}
+
+export function convertFromMeters(meters, unit) {
+  if (meters == null) return null;
+  if (unit === 'yd') return round2(Number(meters) / M_PER_YD);
+  return Number(meters);
+}
+
+// Reps is a smallint column; coerce any input to a whole number or null
+// (empty, blank, or non-numeric becomes null — never a partial parse).
+export function repsOrNull(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!/^\d+$/.test(s)) return null;
+  return Number(s);
+}
+
 const WORKOUT_SELECT = `
   id, coach_id, client_id, name, date, is_template,
   is_self_directed, completed_at, notes,
   workout_blocks (
     id, workout_id, exercise_id, position, sets, reps,
     weight_lb, rest_seconds, unit, notes, side,
-    work_type, duration_seconds,
+    work_type, duration_seconds, distance_m, distance_unit,
     group_id, group_position
   )
 `;
@@ -40,6 +63,8 @@ function blockFromRow(row) {
     side: row.side ?? 'bilateral',
     work_type: row.work_type ?? 'reps',
     durationSeconds: row.duration_seconds ?? null,
+    distance: convertFromMeters(row.distance_m, row.distance_unit),
+    distanceUnit: row.distance_unit ?? 'm',
     groupId: row.group_id ?? null,
     groupPosition: row.group_position ?? null,
   };
@@ -85,7 +110,7 @@ export function toBlockRow(block, workoutId, position) {
     exercise_id: block.exId,
     position,
     sets: block.sets,
-    reps: block.reps,
+    reps: repsOrNull(block.reps),
     weight_lb: convertToLb(block.weight, block.unit),
     rest_seconds: block.rest,
     unit: block.unit,
@@ -93,6 +118,8 @@ export function toBlockRow(block, workoutId, position) {
     side: block.side ?? 'bilateral',
     work_type: block.work_type ?? 'reps',
     duration_seconds: block.durationSeconds ?? null,
+    distance_m: convertToMeters(block.distance, block.distanceUnit),
+    distance_unit: block.distanceUnit ?? 'm',
     group_id: block.groupId ?? null,
     group_position: block.groupPosition ?? null,
   };
