@@ -12,7 +12,7 @@ import { useSession } from './auth/useSession.js';
 import { useCoaches } from './hooks/useCoaches.js';
 import { useClients } from './hooks/useClients.js';
 import { useMeasurements } from './hooks/useMeasurements.js';
-import { useWorkouts } from './hooks/useWorkouts.js';
+import { useWorkouts, repsOrNull } from './hooks/useWorkouts.js';
 import { useClientNotes } from './hooks/useClientNotes.js';
 import { useExercises } from './hooks/useExercises.js';
 import { useLogs } from './hooks/useLogs.js';
@@ -3481,7 +3481,7 @@ function TemplateCard({ tpl, exercises, onEdit, onDelete, onAssign }) {
               <div key={i} className="flex items-center gap-2 text-[12px]">
                 <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
                 <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
-                <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.reps}</span>
+                <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.work_type === "distance" ? `${b.distance ?? "—"}${b.distanceUnit || "m"}` : (b.reps ?? "—")}</span>
               </div>
             );
           };
@@ -4042,7 +4042,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   }, [client, workout.blocks, exercises, applyClientFilter]);
 
   const addExercise = (ex) => {
-    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: ex.defReps, weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "" }]});
+    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: repsOrNull(ex.defReps), weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "" }]});
     notify?.(`Added ${ex.name}`);
   };
   const removeBlock = (i) => {
@@ -4449,13 +4449,20 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
             </div>
           </div>
           <WorkTypeToggle workType={workType} onChange={setWorkType}/>
+          {workType === "distance" && (
+            <div className="flex justify-end mt-1">
+              <DistanceUnitToggle unit={block.distanceUnit || "m"} onChange={u => onUpdate({distanceUnit: u})}/>
+            </div>
+          )}
           <SideToggle side={side} onChange={setSide}/>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
             <NumericField label="Sets" value={block.sets} onChange={n => onUpdate({sets: n})} integer mini/>
             {workType === "time" ? (
               <NumericField label="Duration (s)" value={block.durationSeconds} onChange={n => onUpdate({durationSeconds: n})} integer mini/>
+            ) : workType === "distance" ? (
+              <NumericField label={`Dist (${block.distanceUnit || "m"})`} value={block.distance} onChange={n => onUpdate({distance: n})} placeholder="—" mini/>
             ) : (
-              <MiniField label="Reps" value={block.reps} onChange={v => onUpdate({reps: v})}/>
+              <NumericField label="Reps" value={block.reps} onChange={n => onUpdate({reps: n})} integer mini/>
             )}
             <NumericField label={`Weight (${unitLabel(unit)})`} value={block.weight != null ? toDisplay(block.weight, unit) : null}
               onChange={n => onUpdate({weight: n == null ? null : fromDisplay(n, unit)})} placeholder="—" mini/>
@@ -4472,6 +4479,23 @@ function UnitToggle({ unit, onChange }) {
   return (
     <div className="flex gap-0.5 p-0.5 rounded-lg" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
       {["lb","kg"].map(u => (
+        <button key={u} onClick={() => onChange(u)}
+          type="button"
+          className="px-2 py-0.5 rounded text-[10px] font-medium mono uppercase tracking-wide"
+          style={unit === u
+            ? {background:"var(--ink)", color:"var(--paper)"}
+            : {background:"transparent", color:"var(--muted)"}}>
+          {u}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DistanceUnitToggle({ unit, onChange }) {
+  return (
+    <div className="flex gap-0.5 p-0.5 rounded-lg" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+      {["m","yd"].map(u => (
         <button key={u} onClick={() => onChange(u)}
           type="button"
           className="px-2 py-0.5 rounded text-[10px] font-medium mono uppercase tracking-wide"
@@ -4519,6 +4543,7 @@ function SideChip({ side }) {
 const WORK_TYPE_OPTIONS = [
   { value: "reps", label: "Reps" },
   { value: "time", label: "Time" },
+  { value: "distance", label: "Distance" },
 ];
 
 function WorkTypeToggle({ workType, onChange }) {
