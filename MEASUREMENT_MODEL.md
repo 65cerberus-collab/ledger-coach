@@ -17,9 +17,11 @@ and **set_log** (actual performed set) has exactly one measurement
 - `distance` — a distance, stored canonically in **meters**
 
 ### Orthogonal to type (apply to any type)
-- **side** — `bilateral` | `left` | `right` | `alternating`. Any type can
-  be unilateral. An `alternating` prescription expands into concrete
-  left + right rows at log time (never stored as `alternating` in set_logs).
+- **side** — prescription level is `bilateral` | `unilateral` (per the 030
+  collapse). A `unilateral` block expands into concrete left + right rows at
+  log time; `set_logs` stores concrete `bilateral` | `left` | `right`. There
+  is no separate `alternating` prescription value — unilateral covers it, and
+  per-side set_logs capture the actuals.
 - **load** — optional added weight, stored canonically in **pounds**
   (`weight_lb`). Applies to any type: loaded carry = distance + weight,
   weighted plank = time + weight, weighted reps = reps + weight.
