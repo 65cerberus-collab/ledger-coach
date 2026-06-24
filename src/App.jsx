@@ -2661,30 +2661,55 @@ function LogCard({ block, ex, onLog }) {
 }
 
 /* -----------------------------  HISTORY TAB  ----------------------------- */
+// Total volume in lb for a per-set log. Reps: weight × reps (unweighted = 0).
+// Time/distance: weight defaults to 1 so an unweighted hold/carry still
+// contributes its time/distance. Unilateral left+right rows both count.
+function logVolumeLb(log, block) {
+  const wt = block?.work_type || "reps";
+  return (log.sets || []).reduce((acc, s) => {
+    const w = Number(s.weightLb) || 0;
+    if (wt === "time") return acc + (Number(s.durationSeconds) || 0) * (w || 1);
+    if (wt === "distance") return acc + (Number(s.distanceM) || 0) * (w || 1);
+    return acc + w * (Number(s.reps) || 0);
+  }, 0);
+}
+
+// Per-set actuals grid for a history detail row, rendered from log.sets.
+function LoggedSetsGrid({ log, block, logUnit }) {
+  const wt = block?.work_type || "reps";
+  const isTime = wt === "time";
+  const isDistance = wt === "distance";
+  const distanceUnit = block?.distanceUnit || "m";
+  const sets = log.sets || [];
+  if (!sets.length) {
+    return <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>Logged</div>;
+  }
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
+      {sets.map((s, si) => {
+        const sidePfx = s.side === "left" ? "L " : s.side === "right" ? "R " : "";
+        const core = isTime ? `${s.durationSeconds ?? "—"}s`
+          : isDistance ? `${convertFromMeters(s.distanceM, distanceUnit) ?? "—"}${distanceUnit}`
+          : `${s.reps ?? "—"}`;
+        return (
+          <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
+            <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>{sidePfx}Set {s.setNumber}</div>
+            <div className="text-[13px] font-medium">
+              {s.weightLb != null && s.weightLb > 0 && <>{toDisplay(s.weightLb, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
+              {core}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitPref = "lb" }) {
   const [openId, setOpenId] = useState(null);
   const past = clientWorkouts.filter(w => w.date <= today()).sort((a,b) => b.date.localeCompare(a.date));
   const totalExercises = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId)).length;
   const attendedCount = attendance.filter(a => a.status === "present" && clientWorkouts.some(w => w.id === a.workoutId)).length;
-  // For time-based blocks, weight defaults to 1 so an unweighted hold still contributes
-  // its time-under-tension to volume.
-  const volumeFor = (log, block) => {
-    const isTime = block?.work_type === "time";
-    if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => isTime
-        ? acc + (parseInt(s.actualSeconds) || 0) * (parseFloat(s.weight) || 1)
-        : acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0)
-      , 0);
-    }
-    const sets = Number(log.actualSets) || 0;
-    const reps = parseInt(log.actualReps) || 0;
-    if (isTime) {
-      const wt = parseFloat(log.actualWeight) || 1;
-      return sets * reps * wt;
-    }
-    const wt = Number(log.actualWeight) || 0;
-    return sets * reps * wt;
-  };
   return (
     <div>
       <div className="grid grid-cols-3 gap-4 mb-8">
@@ -2700,7 +2725,7 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
             const att = attendance.find(a => a.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l, w.blocks.find(b => b.exId === l.exId)), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + logVolumeLb(l, w.blocks.find(b => b._id === l.blockId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
             const isOpen = openId === w.id;
             return (
@@ -2734,11 +2759,12 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
                       const renderHistBlock = (b, i) => {
                         const ex = exercises.find(e => e.id === b.exId);
                         if (!ex) return null;
-                        const log = wLogs.find(l => l.exId === b.exId);
+                        const log = wLogs.find(l => l.blockId === b._id);
                         const bUnit = b.unit || "lb";
                         const logUnit = log?.unit || bUnit;
                         const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
                         const isTime = b.work_type === "time";
+                        const isDistance = b.work_type === "distance";
                         return (
                           <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
                             <div className="flex items-start gap-2.5 mb-2">
@@ -2747,40 +2773,23 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium">{ex.name}</span>
                                   <WorkTypeChip workType={b.work_type}/>
-                                  {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+                                  {log?.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
                                 </div>
                                 <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
                                   {isTime
                                     ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
-                                    : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
+                                    : isDistance
+                                      ? `planned ${b.sets}×${b.distance ?? "—"}${b.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                      : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
                                 </div>
                                 {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                               </div>
                             </div>
                             {log ? (
-                              log.mode === "modified" && log.perSet ? (
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
-                                  {log.perSet.map((s, si) => (
-                                    <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                      <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
-                                      <div className="text-[13px] font-medium">
-                                        {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
-                                        {isTime ? `${s.actualSeconds ?? s.duration ?? "—"}s` : s.reps}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                  <span className="text-[13px] font-medium">
-                                    {isTime
-                                      ? `${log.actualSets ?? b.sets} × ${log.actualReps ?? (b.durationSeconds ?? "—")}s hold`
-                                      : `${log.actualSets ?? b.sets} × ${log.actualReps ?? b.reps}`}
-                                    {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
-                                  </span>
-                                  {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
-                                </div>
-                              )
+                              <>
+                                <LoggedSetsGrid log={log} block={b} logUnit={logUnit}/>
+                                {log.notes && <div className="text-[11px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
+                              </>
                             ) : (
                               <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
                                 Not logged
@@ -4970,25 +4979,6 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
 function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
   const [openId, setOpenId] = useState(null);
 
-  // For time-based blocks, weight defaults to 1 so an unweighted hold still contributes
-  // its time-under-tension to volume.
-  const volumeFor = (log, block) => {
-    const isTime = block?.work_type === "time";
-    if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => isTime
-        ? acc + (parseInt(s.actualSeconds) || 0) * (parseFloat(s.weight) || 1)
-        : acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0)
-      , 0);
-    }
-    const sets = Number(log.actualSets) || 0;
-    const reps = parseInt(log.actualReps) || 0;
-    if (isTime) {
-      const wt = parseFloat(log.actualWeight) || 1;
-      return sets * reps * wt;
-    }
-    const wt = Number(log.actualWeight) || 0;
-    return sets * reps * wt;
-  };
 
   return (
     <div>
@@ -5005,7 +4995,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
         <div className="space-y-2">
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l, w.blocks.find(b => b.exId === l.exId)), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + logVolumeLb(l, w.blocks.find(b => b._id === l.blockId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
             const isOpen = openId === w.id;
             return (
@@ -5039,11 +5029,12 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                       const renderHistBlock = (b, i) => {
                         const ex = exercises.find(e => e.id === b.exId);
                         if (!ex) return null;
-                        const log = wLogs.find(l => l.exId === b.exId);
+                        const log = wLogs.find(l => l.blockId === b._id);
                         const bUnit = b.unit || "lb";
                         const logUnit = log?.unit || bUnit;
                         const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
                         const isTime = b.work_type === "time";
+                        const isDistance = b.work_type === "distance";
                         return (
                           <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
                             <div className="flex items-start gap-2.5 mb-2">
@@ -5052,40 +5043,23 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium">{ex.name}</span>
                                   <WorkTypeChip workType={b.work_type}/>
-                                  {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+                                  {log?.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
                                 </div>
                                 <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
                                   {isTime
                                     ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
-                                    : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
+                                    : isDistance
+                                      ? `planned ${b.sets}×${b.distance ?? "—"}${b.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                      : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
                                 </div>
                                 {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                               </div>
                             </div>
                             {log ? (
-                              log.mode === "modified" && log.perSet ? (
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
-                                  {log.perSet.map((s, si) => (
-                                    <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                      <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
-                                      <div className="text-[13px] font-medium">
-                                        {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
-                                        {isTime ? `${s.actualSeconds ?? s.duration ?? "—"}s` : s.reps}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                  <span className="text-[13px] font-medium">
-                                    {isTime
-                                      ? `${log.actualSets ?? b.sets} × ${log.actualReps ?? (b.durationSeconds ?? "—")}s hold`
-                                      : `${log.actualSets ?? b.sets} × ${log.actualReps ?? b.reps}`}
-                                    {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
-                                  </span>
-                                  {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
-                                </div>
-                              )
+                              <>
+                                <LoggedSetsGrid log={log} block={b} logUnit={logUnit}/>
+                                {log.notes && <div className="text-[11px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
+                              </>
                             ) : (
                               <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
                                 Not logged
