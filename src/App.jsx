@@ -5128,6 +5128,28 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
 }
 
 function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDirected, onLog }) {
+  // GATED FOR CUTOVER: ad-hoc independent ("solo") logging is temporarily
+  // unavailable. Its session lifecycle predates the Supabase/per-set schema
+  // — it logs against an un-persisted, non-UUID session id with no block_id,
+  // so it cannot write valid logs — and is being rebuilt as the lead
+  // post-cutover self-logging feature. This early return prevents invalid
+  // writes; delete it (and restore the flow below) at rebuild time.
+  return (
+    <div>
+      <div className="mb-6">
+        <div className="mono text-[10px] uppercase tracking-[0.2em]" style={{color:"var(--muted)"}}>— Log solo</div>
+        <h1 className="display text-3xl font-light tracking-tight mt-1">Independent session</h1>
+      </div>
+      <div className="card p-6 text-center">
+        <div className="mono text-[11px] uppercase tracking-wider mb-2" style={{color:"var(--muted)"}}>Coming soon</div>
+        <div className="text-sm" style={{color:"var(--ink-2)"}}>
+          Independent self-logging is being rebuilt. For now, log from the client's assigned program.
+        </div>
+      </div>
+    </div>
+  );
+
+  // eslint-disable-next-line no-unreachable
   // Self-directed session: client picks exercises, logs sets, saves
   const [session, setSession] = useState(null); // { id, blocks: [{exId, sets}] }
   const [name, setName] = useState("");
