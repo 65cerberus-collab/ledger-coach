@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase.js';
+import { convertFromMeters, convertToMeters, repsOrNull } from './useWorkouts.js';
 
 const EXERCISE_COLUMNS = `
   id, coach_id, name, movement, muscles, equipment, difficulty,
   tags, contraindications, default_sets, default_reps, default_rest,
+  default_work_type, default_duration_seconds, default_distance_m,
+  default_distance_unit, default_side,
   notes, is_seed
 `;
 
@@ -20,6 +23,11 @@ const fromRow = (r) => ({
   defSets: r.default_sets,
   defReps: r.default_reps,
   defRest: r.default_rest,
+  defWorkType: r.default_work_type ?? 'reps',
+  defDurationSeconds: r.default_duration_seconds ?? null,
+  defDistance: convertFromMeters(r.default_distance_m, r.default_distance_unit),
+  defDistanceUnit: r.default_distance_unit ?? 'm',
+  defSide: r.default_side ?? 'bilateral',
   notes: r.notes,
   isSeed: r.is_seed,
 });
@@ -34,8 +42,13 @@ const toRow = (input) => {
   if ('tags' in input) out.tags = input.tags;
   if ('contraindications' in input) out.contraindications = input.contraindications;
   if ('defSets' in input) out.default_sets = input.defSets;
-  if ('defReps' in input) out.default_reps = input.defReps;
+  if ('defReps' in input) out.default_reps = repsOrNull(input.defReps);
   if ('defRest' in input) out.default_rest = input.defRest;
+  if ('defWorkType' in input) out.default_work_type = input.defWorkType;
+  if ('defDurationSeconds' in input) out.default_duration_seconds = input.defDurationSeconds;
+  if ('defDistance' in input) out.default_distance_m = convertToMeters(input.defDistance, input.defDistanceUnit);
+  if ('defDistanceUnit' in input) out.default_distance_unit = input.defDistanceUnit;
+  if ('defSide' in input) out.default_side = input.defSide;
   if ('notes' in input) out.notes = input.notes;
   return out;
 };

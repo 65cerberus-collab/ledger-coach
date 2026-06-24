@@ -3737,7 +3737,7 @@ function ExerciseCard({ ex, onClick, compact }) {
       </div>
       {!compact && (
         <div className="flex items-center gap-2 mt-3 pt-3" style={{borderTop:"1px solid var(--line-2)"}}>
-          <span className="mono text-[10px] uppercase tabular" style={{color:"var(--ink-2)"}}>{ex.defSets}×{ex.defReps}</span>
+          <span className="mono text-[10px] uppercase tabular" style={{color:"var(--ink-2)"}}>{ex.defSets}×{exDefValue(ex)}</span>
           <span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>· {ex.defRest}s</span>
         </div>
       )}
@@ -3745,10 +3745,20 @@ function ExerciseCard({ ex, onClick, compact }) {
   );
 }
 
+// Library-row summary value: shows the right default per measurement type
+// (reps -> "10", time -> "30s", distance -> "40m"/"40yd").
+function exDefValue(ex) {
+  if (ex.defWorkType === "time") return `${ex.defDurationSeconds ?? "—"}s`;
+  if (ex.defWorkType === "distance") return `${ex.defDistance ?? "—"}${ex.defDistanceUnit || "m"}`;
+  return `${ex.defReps ?? "—"}`;
+}
+
 function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete }) {
   const [draft, setDraft] = useState(ex || {
     name: "", movement: "push", muscles: [], equipment: [], difficulty: "beginner", tags: [], contraindications: [],
-    defSets: 3, defReps: "10", defRest: 90, notes: ""
+    defSets: 3, defReps: 10, defRest: 90,
+    defWorkType: "reps", defDurationSeconds: null, defDistance: null, defDistanceUnit: "m", defSide: "bilateral",
+    notes: ""
   });
   const upd = (k, v) => setDraft({...draft, [k]: v});
 
@@ -3758,6 +3768,20 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
     e.name.trim().toLowerCase() === trimmedName && e.id !== draft.id
   );
   const canSave = draft.name.trim() && !duplicateExists;
+
+  // On save, keep only the active measurement's value; null the others so
+  // each exercise stores exactly one of reps / duration / distance.
+  const handleSave = () => {
+    if (!canSave) return;
+    const wt = draft.defWorkType || "reps";
+    onSave({
+      ...draft,
+      defWorkType: wt,
+      defReps: wt === "reps" ? draft.defReps : null,
+      defDurationSeconds: wt === "time" ? draft.defDurationSeconds : null,
+      defDistance: wt === "distance" ? draft.defDistance : null,
+    });
+  };
 
   return (
     <Modal onClose={onClose} title={ex ? "Edit exercise" : "New exercise"} wide>
@@ -3791,10 +3815,25 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
         <TagEditor label="Muscle groups" values={draft.muscles} suggestions={["chest","back","shoulders","biceps","triceps","quads","hamstrings","glutes","calves","core","lats","traps"]} onChange={v => upd("muscles", v)}/>
         <TagEditor label="Tags" values={draft.tags} suggestions={["compound","isolation","upper","lower","bodyweight","unilateral","posterior","power","conditioning","mobility","warmup","beginner-friendly","flexibility","prenatal-safe","shoulder-health"]} onChange={v => upd("tags", v)}/>
         <TagEditor label="Contraindications" values={draft.contraindications} suggestions={["shoulder injury","knee injury","low back injury","wrist injury","prenatal caution","disc issue","elbow injury"]} onChange={v => upd("contraindications", v)}/>
-        <div className="grid grid-cols-3 gap-3">
-          <NumericField label="Default sets" value={draft.defSets} onChange={n => upd("defSets", n)} integer/>
-          <Field label="Default reps" value={draft.defReps} onChange={v => upd("defReps", v)}/>
-          <NumericField label="Rest (sec)" value={draft.defRest} onChange={n => upd("defRest", n)} integer/>
+        <div>
+          <WorkTypeToggle workType={draft.defWorkType || "reps"} onChange={w => upd("defWorkType", w)}/>
+          {draft.defWorkType === "distance" && (
+            <div className="flex justify-end mt-1">
+              <DistanceUnitToggle unit={draft.defDistanceUnit || "m"} onChange={u => upd("defDistanceUnit", u)}/>
+            </div>
+          )}
+          <SideToggle side={draft.defSide || "bilateral"} onChange={s => upd("defSide", s)}/>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            <NumericField label="Default sets" value={draft.defSets} onChange={n => upd("defSets", n)} integer/>
+            {draft.defWorkType === "time" ? (
+              <NumericField label="Duration (s)" value={draft.defDurationSeconds} onChange={n => upd("defDurationSeconds", n)} integer/>
+            ) : draft.defWorkType === "distance" ? (
+              <NumericField label={`Distance (${draft.defDistanceUnit || "m"})`} value={draft.defDistance} onChange={n => upd("defDistance", n)} placeholder="—"/>
+            ) : (
+              <NumericField label="Default reps" value={draft.defReps} onChange={n => upd("defReps", n)} integer/>
+            )}
+            <NumericField label="Rest (sec)" value={draft.defRest} onChange={n => upd("defRest", n)} integer/>
+          </div>
         </div>
         <Field label="Notes" multi value={draft.notes || ""} onChange={v => upd("notes", v)}/>
       </div>
@@ -3802,7 +3841,7 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
         {ex && onDelete && <button onClick={onDelete} className="btn btn-ghost" style={{color:"var(--danger)"}}><Trash2 size={14}/> Delete</button>}
         <div className="ml-auto flex gap-2">
           <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-          <button onClick={() => canSave && onSave(draft)} disabled={!canSave}
+          <button onClick={handleSave} disabled={!canSave}
             style={!canSave ? {opacity:0.45, cursor:"not-allowed"} : {}}
             className="btn btn-primary"><Check size={14}/> Save</button>
         </div>
@@ -4042,7 +4081,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   }, [client, workout.blocks, exercises, applyClientFilter]);
 
   const addExercise = (ex) => {
-    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: repsOrNull(ex.defReps), weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "" }]});
+    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: repsOrNull(ex.defReps), weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "", work_type: ex.defWorkType || "reps", durationSeconds: ex.defDurationSeconds ?? null, distance: ex.defDistance ?? null, distanceUnit: ex.defDistanceUnit || "m", side: ex.defSide || "bilateral" }]});
     notify?.(`Added ${ex.name}`);
   };
   const removeBlock = (i) => {
@@ -4167,7 +4206,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 <span className={`dot ${movementClass(ex.movement)}`} style={{width:"9px",height:"9px"}}/>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{ex.name}</div>
-                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{ex.defReps} · {ex.difficulty}</div>
+                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{exDefValue(ex)} · {ex.difficulty}</div>
                 </div>
                 <Plus size={14} style={{color:"var(--muted)"}}/>
               </button>
@@ -5419,7 +5458,7 @@ function ClientExercisePicker({ exercises, client, onClose, onPick }) {
             <span className={`dot ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
             <div className="flex-1 min-w-0">
               <div className="text-[13px] font-medium truncate">{ex.name}</div>
-              <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{ex.defReps}</div>
+              <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{exDefValue(ex)}</div>
             </div>
             <Plus size={13} style={{color:"var(--muted)"}}/>
           </button>
