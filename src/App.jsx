@@ -12,7 +12,7 @@ import { useSession } from './auth/useSession.js';
 import { useCoaches } from './hooks/useCoaches.js';
 import { useClients } from './hooks/useClients.js';
 import { useMeasurements } from './hooks/useMeasurements.js';
-import { useWorkouts, repsOrNull } from './hooks/useWorkouts.js';
+import { useWorkouts, repsOrNull, convertToMeters, convertFromMeters } from './hooks/useWorkouts.js';
 import { useClientNotes } from './hooks/useClientNotes.js';
 import { useExercises } from './hooks/useExercises.js';
 import { useLogs } from './hooks/useLogs.js';
@@ -2342,8 +2342,8 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
                 const [b1, b2] = item.blocks;
                 const ex1 = exercises.find(e => e.id === b1.exId);
                 const ex2 = exercises.find(e => e.id === b2.exId);
-                const log1 = workoutLogs.find(l => l.exId === b1.exId);
-                const log2 = workoutLogs.find(l => l.exId === b2.exId);
+                const log1 = workoutLogs.find(l => l.blockId === b1._id);
+                const log2 = workoutLogs.find(l => l.blockId === b2._id);
                 const bothDone = !!log1 && !!log2;
                 return (
                   <div key={`g-${b1.groupId}`} className="rounded-2xl p-3"
@@ -2358,10 +2358,10 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
                     </div>
                     <div className="grid md:grid-cols-2 gap-2">
                       <ExerciseBlock block={b1} ex={ex1} blockLog={log1}
-                        onLog={(log) => onLog({...log, workoutId: workout.id, exId: b1.exId, date: workout.date})}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b1._id, exId: b1.exId, date: workout.date})}
                         onDeleteLog={onDeleteLog}/>
                       <ExerciseBlock block={b2} ex={ex2} blockLog={log2}
-                        onLog={(log) => onLog({...log, workoutId: workout.id, exId: b2.exId, date: workout.date})}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b2._id, exId: b2.exId, date: workout.date})}
                         onDeleteLog={onDeleteLog}/>
                     </div>
                   </div>
@@ -2369,10 +2369,10 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
               }
               const b = item.block;
               const ex = exercises.find(e => e.id === b.exId);
-              const blockLog = workoutLogs.find(l => l.exId === b.exId);
+              const blockLog = workoutLogs.find(l => l.blockId === b._id);
               return (
-                <ExerciseBlock key={`b-${b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
-                  onLog={(log) => onLog({...log, workoutId: workout.id, exId: b.exId, date: workout.date})}
+                <ExerciseBlock key={`b-${b._id ?? b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
+                  onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b._id, exId: b.exId, date: workout.date})}
                   onDeleteLog={onDeleteLog}
                 />
               );
@@ -2434,13 +2434,28 @@ function ExerciseBlock({ block, ex, blockLog, onLog, onDeleteLog }) {
   );
 }
 
-/** Compact display of a completed exercise */
+/** Compact display of a completed exercise (renders from the per-set log.sets) */
 function LoggedExerciseCard({ block, ex, log, onDelete }) {
-  const [showDetails, setShowDetails] = useState(false);
   const unit = log.unit || block?.unit || "lb";
-  const actualW = log.actualWeight != null ? toDisplay(log.actualWeight, unit) : null;
   const workType = block?.work_type || "reps";
   const isTime = workType === "time";
+  const isDistance = workType === "distance";
+  const distanceUnit = block?.distanceUnit || "m";
+  const sets = log.sets || [];
+
+  // One concrete set row -> "[L/R ]value[ @ weight]". side is only shown
+  // when it isn't bilateral (i.e. for expanded unilateral left/right rows).
+  const fmtSet = (s) => {
+    const sidePfx = s.side === "left" ? "L " : s.side === "right" ? "R " : "";
+    const w = s.weightLb != null ? ` @ ${toDisplay(s.weightLb, unit)}${unitLabel(unit)}` : "";
+    let core;
+    if (isTime) core = `${s.durationSeconds ?? "—"}s`;
+    else if (isDistance) core = `${convertFromMeters(s.distanceM, distanceUnit) ?? "—"}${distanceUnit}`;
+    else core = `${s.reps ?? "—"}`;
+    return `${sidePfx}${core}${w}`;
+  };
+
+  const summary = sets.length ? sets.map(fmtSet).join(" · ") : "logged";
 
   return (
     <div className="rounded-xl p-4 grow-in" style={{background:"#fff", border:"1px solid var(--good)"}}>
@@ -2453,19 +2468,10 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
             <span className="font-medium text-[15px]">{ex.name}</span>
             <SideChip side={block?.side}/>
             <WorkTypeChip workType={workType}/>
-            {log.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+            {log.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
           </div>
           <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
-            {log.mode === "modified" && log.perSet ? (
-              log.perSet.map(s => isTime
-                ? `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.actualSeconds ?? s.duration ?? "—"}s`
-                : `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`
-              ).join(" · ")
-            ) : isTime ? (
-              `${log.actualSets ?? block.sets} × ${log.actualReps ?? (block.durationSeconds ?? "—")}s hold${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-            ) : (
-              `${log.actualSets ?? block.sets} × ${log.actualReps ?? block.reps}${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-            )}
+            {summary}
           </div>
           {log.notes && <div className="text-[12px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
         </div>
@@ -2477,77 +2483,81 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
   );
 }
 
-/** Pre-filled log card — one-tap "Mark done" with optional Modified expansion */
+/** Pre-filled log card — one-tap "As prescribed" (fast path) or a per-set "Modified" path */
 function LogCard({ block, ex, onLog }) {
   const unit = block.unit || "lb";
   const workType = block.work_type || "reps";
   const isTime = workType === "time";
-  const [actualSets, setActualSets] = useState(block.sets);
-  const [actualReps, setActualReps] = useState(block.reps);
-  const [actualSeconds, setActualSeconds] = useState(block.durationSeconds ?? "");
-  const [actualWeight, setActualWeight] = useState(block.weight != null ? toDisplay(block.weight, unit) : "");
-  const [modified, setModified] = useState(false);
+  const isUnilateral = block.side === "unilateral";
+  const [editing, setEditing] = useState(false);
   const [perSet, setPerSet] = useState([]);
   const [notes, setNotes] = useState("");
 
-  // When "Modified" toggles on, initialize perSet rows from the plan
-  const toggleModified = () => {
-    if (!modified) {
-      const rows = [];
-      const nSets = Number(block.sets) || 1;
-      for (let i = 0; i < nSets; i++) {
-        const row = isTime
-          ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
-          : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
-        rows.push(row);
-      }
-      setPerSet(rows);
-    }
-    setModified(!modified);
+  const plannedW = block.weight != null ? toDisplay(block.weight, unit) : null;
+  const weightLbOf = (displayVal) =>
+    displayVal === "" || displayVal == null ? null : fromDisplay(displayVal, unit);
+
+  // Wrap a canonical set base into the shape buildSetRows expects.
+  // Unilateral mirrors the same values onto left + right at write time
+  // (true per-side divergent entry is PR4); bilateral stays flat.
+  const wrapSide = (base) => isUnilateral ? { left: base, right: { ...base } } : base;
+
+  const emit = (modified, sets) => {
+    onLog({
+      blockId: block._id,
+      source: "coach",
+      unit,
+      modified,
+      prescriptionSide: block.side,
+      notes,
+      sets,
+    });
+  };
+
+  // Fast path: log exactly the prescription, modified = false. Handles
+  // all three work types (reps / time / distance).
+  const logAsPrescribed = () => {
+    const n = Number(block.sets) || 1;
+    const base = {
+      reps: workType === "reps" ? block.reps : null,
+      durationSeconds: workType === "time" ? block.durationSeconds : null,
+      distanceM: workType === "distance" ? convertToMeters(block.distance, block.distanceUnit) : null,
+      weightLb: block.weight != null ? fromDisplay(block.weight, unit) : null,
+    };
+    const sets = [];
+    for (let i = 0; i < n; i++) sets.push(wrapSide({ ...base }));
+    emit(false, sets);
+  };
+
+  // Modified path: open a per-set form seeded from the plan.
+  const seedRow = () => isTime
+    ? { actualSeconds: block.durationSeconds ?? "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
+    : { reps: block.reps ?? "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
+
+  const startModified = () => {
+    const rows = [];
+    const n = Number(block.sets) || 1;
+    for (let i = 0; i < n; i++) rows.push(seedRow());
+    setPerSet(rows);
+    setEditing(true);
   };
 
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const addRow = () => {
-    const row = isTime
-      ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
-      : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
-    setPerSet([...perSet, row]);
-  };
+  const addRow = () => setPerSet([...perSet, seedRow()]);
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
 
-  const markDone = () => {
-    if (modified) {
-      onLog({
-        completed: true,
-        mode: "modified",
-        actualSets: perSet.length,
-        actualReps: null,
-        actualWeight: null,
-        perSet: perSet.map(s => (
-          isTime
-            ? { actualSeconds: s.actualSeconds, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-        )),
-        notes,
-        source: "coach",
-        unit,
-      });
-    } else {
-      onLog({
-        completed: true,
-        mode: "asPlanned",
-        actualSets: Number(actualSets) || block.sets,
-        actualReps: isTime ? (actualSeconds === "" ? null : actualSeconds) : actualReps,
-        actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
-        perSet: null,
-        notes,
-        source: "coach",
-        unit,
-      });
-    }
+  // NOTE: per-set distance entry and true per-side L/R inputs are PR4.
+  // Here a distance block falls back to the reps field (matching the
+  // pre-PR3 Modified capability); "As prescribed" logs distance correctly.
+  const saveModified = () => {
+    const sets = perSet.map((s) => wrapSide({
+      reps: isTime ? null : s.reps,
+      durationSeconds: isTime ? (s.actualSeconds === "" ? null : Number(s.actualSeconds)) : null,
+      distanceM: null,
+      weightLb: weightLbOf(s.weight),
+    }));
+    emit(true, sets);
   };
-
-  const plannedW = block.weight != null ? toDisplay(block.weight, unit) : null;
 
   return (
     <div className="rounded-xl p-4" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
@@ -2562,67 +2572,64 @@ function LogCard({ block, ex, onLog }) {
           <div className="text-[11px] mono uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--muted)"}}>
             {isTime
               ? `planned: ${block.sets} × ${block.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`
-              : `planned: ${block.sets} × ${block.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`}
+              : workType === "distance"
+                ? `planned: ${block.sets} × ${block.distance ?? "—"}${block.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`
+                : `planned: ${block.sets} × ${block.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`}
           </div>
           {block.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{block.notes}</div>}
         </div>
       </div>
 
-      {!modified ? (
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Sets</label>
-            <input type="text" inputMode="numeric" value={actualSets} onChange={e => setActualSets(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+      {!editing ? (
+        <>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
+            className="field mb-3" style={{padding:"6px 10px", fontSize:"12px", width:"100%"}}/>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={logAsPrescribed} className="btn btn-accent justify-center">
+              <Check size={14}/> As prescribed
+            </button>
+            <button onClick={startModified} className="btn justify-center" style={{border:"1px solid var(--line-2)"}}>
+              Modified
+            </button>
           </div>
-          {isTime ? (
-            <div>
-              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Duration (s)</label>
-              <input type="text" inputMode="numeric" value={actualSeconds} onChange={e => setActualSeconds(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-            </div>
-          ) : (
-            <div>
-              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
-              <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+        </>
+      ) : (
+        <>
+          {isUnilateral && (
+            <div className="text-[10px] mono uppercase tracking-wider mb-2" style={{color:"var(--muted)"}}>
+              L/R logged together
             </div>
           )}
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Weight ({unitLabel(unit)})</label>
-            <input type="text" inputMode="decimal" value={actualWeight} onChange={e => setActualWeight(filterNumericInput(e.target.value))} placeholder="—" className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+          <div className="space-y-1.5 mb-3">
+            {perSet.map((s, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
+                {isTime ? (
+                  <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
+                    className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+                ) : (
+                  <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
+                    className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+                )}
+                <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={`${unitLabel(unit)}`}
+                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+                <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
+              </div>
+            ))}
+            <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
           </div>
-        </div>
-      ) : (
-        <div className="space-y-1.5 mb-3">
-          {perSet.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-              {isTime ? (
-                <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
-                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              ) : (
-                <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              )}
-              <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={`${unitLabel(unit)}`}
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
-            </div>
-          ))}
-          <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
-        </div>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
+            className="field mb-3" style={{padding:"6px 10px", fontSize:"12px", width:"100%"}}/>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setEditing(false)} className="btn justify-center" style={{border:"1px solid var(--line-2)"}}>
+              Cancel
+            </button>
+            <button onClick={saveModified} className="btn btn-accent justify-center">
+              <Check size={14}/> Save modified
+            </button>
+          </div>
+        </>
       )}
-
-      <div className="flex items-center gap-2 mb-3">
-        <label className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{color:"var(--ink-2)"}}>
-          <input type="checkbox" checked={modified} onChange={toggleModified}/>
-          Modified
-        </label>
-        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
-          className="field" style={{padding:"6px 10px", fontSize:"12px", flex:1}}/>
-      </div>
-
-      <button onClick={markDone} className="btn btn-accent w-full justify-center">
-        <Check size={14}/> Mark done
-      </button>
     </div>
   );
 }
