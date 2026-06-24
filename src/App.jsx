@@ -2488,7 +2488,9 @@ function LogCard({ block, ex, onLog }) {
   const unit = block.unit || "lb";
   const workType = block.work_type || "reps";
   const isTime = workType === "time";
+  const isDistance = workType === "distance";
   const isUnilateral = block.side === "unilateral";
+  const distanceUnit = block.distanceUnit || "m";
   const [editing, setEditing] = useState(false);
   const [perSet, setPerSet] = useState([]);
   const [notes, setNotes] = useState("");
@@ -2497,9 +2499,8 @@ function LogCard({ block, ex, onLog }) {
   const weightLbOf = (displayVal) =>
     displayVal === "" || displayVal == null ? null : fromDisplay(displayVal, unit);
 
-  // Wrap a canonical set base into the shape buildSetRows expects.
-  // Unilateral mirrors the same values onto left + right at write time
-  // (true per-side divergent entry is PR4); bilateral stays flat.
+  // Fast path only: mirror the prescription onto both sides. The Modified
+  // path builds left/right from independent inputs (see saveModified).
   const wrapSide = (base) => isUnilateral ? { left: base, right: { ...base } } : base;
 
   const emit = (modified, sets) => {
@@ -2529,10 +2530,16 @@ function LogCard({ block, ex, onLog }) {
     emit(false, sets);
   };
 
-  // Modified path: open a per-set form seeded from the plan.
-  const seedRow = () => isTime
-    ? { actualSeconds: block.durationSeconds ?? "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
-    : { reps: block.reps ?? "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
+  // Modified path: per-set form. Each "side object" holds a work-type
+  // value (reps / seconds / distance display) plus its weight; a row is a
+  // flat side object for bilateral, or { left, right } for unilateral.
+  const seedSide = () => ({
+    value: isTime ? (block.durationSeconds ?? "")
+         : isDistance ? (block.distance ?? "")
+         : (block.reps ?? ""),
+    weight: block.weight != null ? toDisplay(block.weight, unit) : "",
+  });
+  const seedRow = () => isUnilateral ? { left: seedSide(), right: seedSide() } : seedSide();
 
   const startModified = () => {
     const rows = [];
@@ -2543,21 +2550,35 @@ function LogCard({ block, ex, onLog }) {
   };
 
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
+  const updateSide = (i, side, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, [side]: {...s[side], ...patch}} : s));
   const addRow = () => setPerSet([...perSet, seedRow()]);
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
 
-  // NOTE: per-set distance entry and true per-side L/R inputs are PR4.
-  // Here a distance block falls back to the reps field (matching the
-  // pre-PR3 Modified capability); "As prescribed" logs distance correctly.
+  // One side's display inputs -> canonical set fields (lb / meters / seconds).
+  const sideToCanonical = (sd) => ({
+    reps: (isTime || isDistance) ? null : sd.value,
+    durationSeconds: isTime ? (sd.value === "" || sd.value == null ? null : Number(sd.value)) : null,
+    distanceM: isDistance ? (sd.value === "" || sd.value == null ? null : convertToMeters(sd.value, distanceUnit)) : null,
+    weightLb: weightLbOf(sd.weight),
+  });
+
   const saveModified = () => {
-    const sets = perSet.map((s) => wrapSide({
-      reps: isTime ? null : s.reps,
-      durationSeconds: isTime ? (s.actualSeconds === "" ? null : Number(s.actualSeconds)) : null,
-      distanceM: null,
-      weightLb: weightLbOf(s.weight),
-    }));
+    const sets = perSet.map((s) => isUnilateral
+      ? { left: sideToCanonical(s.left), right: sideToCanonical(s.right) }
+      : sideToCanonical(s));
     emit(true, sets);
   };
+
+  // Work-type-aware value input + weight input, reused for bilateral and
+  // each of the L/R rows.
+  const valueField = (val, onChange) => isTime
+    ? <input type="text" inputMode="numeric" value={val} onChange={e => onChange(filterNumericInput(e.target.value, true))} placeholder="secs" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+    : isDistance
+      ? <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={distanceUnit} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+      : <input type="text" value={val} onChange={e => onChange(e.target.value)} placeholder="reps" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
+
+  const weightField = (val, onChange) =>
+    <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={unitLabel(unit)} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
 
   return (
     <div className="rounded-xl p-4" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
@@ -2595,25 +2616,30 @@ function LogCard({ block, ex, onLog }) {
         </>
       ) : (
         <>
-          {isUnilateral && (
-            <div className="text-[10px] mono uppercase tracking-wider mb-2" style={{color:"var(--muted)"}}>
-              L/R logged together
-            </div>
-          )}
-          <div className="space-y-1.5 mb-3">
+          <div className="space-y-2 mb-3">
             {perSet.map((s, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-                {isTime ? (
-                  <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
-                    className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+              <div key={i} className="flex items-start gap-2">
+                <span className="mono text-[10px] uppercase tabular w-10 pt-2" style={{color:"var(--muted)"}}>Set {i+1}</span>
+                {isUnilateral ? (
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="mono text-[10px] uppercase w-3" style={{color:"var(--muted)"}}>L</span>
+                      {valueField(s.left.value, v => updateSide(i, "left", {value: v}))}
+                      {weightField(s.left.weight, v => updateSide(i, "left", {weight: v}))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="mono text-[10px] uppercase w-3" style={{color:"var(--muted)"}}>R</span>
+                      {valueField(s.right.value, v => updateSide(i, "right", {value: v}))}
+                      {weightField(s.right.weight, v => updateSide(i, "right", {weight: v}))}
+                    </div>
+                  </div>
                 ) : (
-                  <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                    className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+                  <div className="flex items-center gap-2 flex-1">
+                    {valueField(s.value, v => updatePerSet(i, {value: v}))}
+                    {weightField(s.weight, v => updatePerSet(i, {weight: v}))}
+                  </div>
                 )}
-                <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={`${unitLabel(unit)}`}
-                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-                <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
+                <button onClick={() => removeRow(i)} className="p-1 rounded mt-1" style={{color:"var(--muted)"}}><X size={12}/></button>
               </div>
             ))}
             <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
