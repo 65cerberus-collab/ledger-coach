@@ -8,14 +8,20 @@
 -- Wrapped in BEGIN / ROLLBACK so nothing persists. Run manually via
 -- the Supabase SQL Editor. CI is deferred to Phase 3+.
 --
+-- This file assumes migration 031 has been applied: logs now carries
+-- block_id (NOT NULL) + modified, and no longer has mode / per_set /
+-- actual_* / completed. logs ownership is STILL via workout_id only
+-- (block_id is not an ownership path), so the policies under test are
+-- unchanged — only the fixtures had to adopt the new column shape.
+--
 -- Helpers used (from supabase/tests/00_helpers.sql):
 --   tests.authenticate_as(uuid), tests.authenticate_as_anon(),
 --   tests.clear_authentication(),
 --   tests.create_user(), tests.create_profile(uuid),
 --   tests.create_coach(uuid), tests.create_workout(uuid),
 --   tests.create_exercise(uuid).
--- No helper exists for logs — fixture rows are inserted directly
--- (postgres role bypasses RLS).
+-- No helper exists for workout_blocks or logs — those fixture rows
+-- are inserted directly (postgres role bypasses RLS).
 
 begin;
 
@@ -53,9 +59,8 @@ insert into fx (k, v) values
   ('workout_a', tests.create_workout((select v from fx where k = 'coach_a'))),
   ('workout_b', tests.create_workout((select v from fx where k = 'coach_b')));
 
--- Three exercises: one for each coach plus a second for Coach A so we
--- can exercise the INSERT path without colliding with the unique
--- (workout_id, exercise_id) index on the pre-existing log_a.
+-- Exercises: one for each coach plus a second for Coach A (used by an
+-- INSERT-path block), plus a shared seed exercise (coach_id IS NULL).
 insert into fx (k, v) values
   ('exercise_a',  tests.create_exercise((select v from fx where k = 'coach_a'))),
   ('exercise_a2', tests.create_exercise((select v from fx where k = 'coach_a'))),
@@ -71,21 +76,62 @@ insert into fx (k, v) values
     limit 1
   ));
 
+-- Blocks. Post-031 every log requires a block_id, and logs are unique
+-- per block, so each log (pre-existing or inserted by a test) needs
+-- its own block. Six blocks:
+--   block_a       — workout_a, parent of the pre-existing log_a
+--   block_b       — workout_b, parent of the pre-existing log_b
+--   block_a2      — workout_a, for the Coach-A INSERT success path (T6)
+--   block_a_seed  — workout_a, seed exercise, for the seed INSERT (T7)
+--   block_b2      — workout_b, fresh, for the cross-coach INSERT (T8)
+--   block_a3      — workout_a, fresh, for the anon INSERT (T9)
+-- The T8/T9 blocks are fresh (unoccupied) so the only thing that can
+-- fail those inserts is RLS (42501), never a unique-on-block clash.
+insert into fx (k, v) values
+  ('block_a',      gen_random_uuid()),
+  ('block_b',      gen_random_uuid()),
+  ('block_a2',     gen_random_uuid()),
+  ('block_a_seed', gen_random_uuid()),
+  ('block_b2',     gen_random_uuid()),
+  ('block_a3',     gen_random_uuid());
+
+insert into public.workout_blocks (id, workout_id, exercise_id, position) values
+  ((select v from fx where k = 'block_a'),
+   (select v from fx where k = 'workout_a'),
+   (select v from fx where k = 'exercise_a'), 1),
+  ((select v from fx where k = 'block_a2'),
+   (select v from fx where k = 'workout_a'),
+   (select v from fx where k = 'exercise_a2'), 2),
+  ((select v from fx where k = 'block_a_seed'),
+   (select v from fx where k = 'workout_a'),
+   (select v from fx where k = 'exercise_seed'), 3),
+  ((select v from fx where k = 'block_a3'),
+   (select v from fx where k = 'workout_a'),
+   (select v from fx where k = 'exercise_a'), 4),
+  ((select v from fx where k = 'block_b'),
+   (select v from fx where k = 'workout_b'),
+   (select v from fx where k = 'exercise_b'), 1),
+  ((select v from fx where k = 'block_b2'),
+   (select v from fx where k = 'workout_b'),
+   (select v from fx where k = 'exercise_a'), 2);
+
 -- Pre-allocate ids for the two pre-existing logs so we can reference
 -- them by id throughout the tests.
 insert into fx (k, v) values
   ('log_a', gen_random_uuid()),
   ('log_b', gen_random_uuid());
 
-insert into public.logs (id, workout_id, exercise_id, date, mode, notes) values
+insert into public.logs (id, workout_id, exercise_id, block_id, date, notes) values
   ((select v from fx where k = 'log_a'),
    (select v from fx where k = 'workout_a'),
    (select v from fx where k = 'exercise_a'),
-   current_date, 'asPlanned', 'log_a original'),
+   (select v from fx where k = 'block_a'),
+   current_date, 'log_a original'),
   ((select v from fx where k = 'log_b'),
    (select v from fx where k = 'workout_b'),
    (select v from fx where k = 'exercise_b'),
-   current_date, 'asPlanned', 'log_b original');
+   (select v from fx where k = 'block_b'),
+   current_date, 'log_b original');
 
 -- ─────────────────────────────────────────────────────────────
 -- T1: RLS is enabled on public.logs.
@@ -147,10 +193,11 @@ select tests.authenticate_as((select v from fx where k = 'user_a'));
 -- T6: Coach A can INSERT a log against their own workout.
 select lives_ok(
   format(
-    $sql$ insert into public.logs (workout_id, exercise_id, date, mode)
-          values (%L, %L, current_date, 'asPlanned') $sql$,
+    $sql$ insert into public.logs (workout_id, exercise_id, block_id, date)
+          values (%L, %L, %L, current_date) $sql$,
     (select v from fx where k = 'workout_a'),
-    (select v from fx where k = 'exercise_a2')
+    (select v from fx where k = 'exercise_a2'),
+    (select v from fx where k = 'block_a2')
   ),
   'Coach A can INSERT a log against their own workout'
 );
@@ -160,10 +207,11 @@ select lives_ok(
 -- not an ownership path.
 select lives_ok(
   format(
-    $sql$ insert into public.logs (workout_id, exercise_id, date, mode)
-          values (%L, %L, current_date, 'asPlanned') $sql$,
+    $sql$ insert into public.logs (workout_id, exercise_id, block_id, date)
+          values (%L, %L, %L, current_date) $sql$,
     (select v from fx where k = 'workout_a'),
-    (select v from fx where k = 'exercise_seed')
+    (select v from fx where k = 'exercise_seed'),
+    (select v from fx where k = 'block_a_seed')
   ),
   'Coach A can INSERT a log referencing a seed exercise (coach_id IS NULL)'
 );
@@ -171,10 +219,11 @@ select lives_ok(
 -- T8: Coach A is blocked from INSERTing against Coach B's workout.
 select throws_ok(
   format(
-    $sql$ insert into public.logs (workout_id, exercise_id, date, mode)
-          values (%L, %L, current_date, 'asPlanned') $sql$,
+    $sql$ insert into public.logs (workout_id, exercise_id, block_id, date)
+          values (%L, %L, %L, current_date) $sql$,
     (select v from fx where k = 'workout_b'),
-    (select v from fx where k = 'exercise_a')
+    (select v from fx where k = 'exercise_a'),
+    (select v from fx where k = 'block_b2')
   ),
   '42501'::char(5),
   null::text,
@@ -185,10 +234,11 @@ select throws_ok(
 select tests.authenticate_as_anon();
 select throws_ok(
   format(
-    $sql$ insert into public.logs (workout_id, exercise_id, date, mode)
-          values (%L, %L, current_date, 'asPlanned') $sql$,
+    $sql$ insert into public.logs (workout_id, exercise_id, block_id, date)
+          values (%L, %L, %L, current_date) $sql$,
     (select v from fx where k = 'workout_a'),
-    (select v from fx where k = 'exercise_a')
+    (select v from fx where k = 'exercise_a'),
+    (select v from fx where k = 'block_a3')
   ),
   '42501'::char(5),
   null::text,

@@ -12,7 +12,7 @@ import { useSession } from './auth/useSession.js';
 import { useCoaches } from './hooks/useCoaches.js';
 import { useClients } from './hooks/useClients.js';
 import { useMeasurements } from './hooks/useMeasurements.js';
-import { useWorkouts } from './hooks/useWorkouts.js';
+import { useWorkouts, repsOrNull, convertToMeters, convertFromMeters } from './hooks/useWorkouts.js';
 import { useClientNotes } from './hooks/useClientNotes.js';
 import { useExercises } from './hooks/useExercises.js';
 import { useLogs } from './hooks/useLogs.js';
@@ -2342,8 +2342,8 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
                 const [b1, b2] = item.blocks;
                 const ex1 = exercises.find(e => e.id === b1.exId);
                 const ex2 = exercises.find(e => e.id === b2.exId);
-                const log1 = workoutLogs.find(l => l.exId === b1.exId);
-                const log2 = workoutLogs.find(l => l.exId === b2.exId);
+                const log1 = workoutLogs.find(l => l.blockId === b1._id);
+                const log2 = workoutLogs.find(l => l.blockId === b2._id);
                 const bothDone = !!log1 && !!log2;
                 return (
                   <div key={`g-${b1.groupId}`} className="rounded-2xl p-3"
@@ -2358,10 +2358,10 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
                     </div>
                     <div className="grid md:grid-cols-2 gap-2">
                       <ExerciseBlock block={b1} ex={ex1} blockLog={log1}
-                        onLog={(log) => onLog({...log, workoutId: workout.id, exId: b1.exId, date: workout.date})}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b1._id, exId: b1.exId, date: workout.date})}
                         onDeleteLog={onDeleteLog}/>
                       <ExerciseBlock block={b2} ex={ex2} blockLog={log2}
-                        onLog={(log) => onLog({...log, workoutId: workout.id, exId: b2.exId, date: workout.date})}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b2._id, exId: b2.exId, date: workout.date})}
                         onDeleteLog={onDeleteLog}/>
                     </div>
                   </div>
@@ -2369,10 +2369,10 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
               }
               const b = item.block;
               const ex = exercises.find(e => e.id === b.exId);
-              const blockLog = workoutLogs.find(l => l.exId === b.exId);
+              const blockLog = workoutLogs.find(l => l.blockId === b._id);
               return (
-                <ExerciseBlock key={`b-${b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
-                  onLog={(log) => onLog({...log, workoutId: workout.id, exId: b.exId, date: workout.date})}
+                <ExerciseBlock key={`b-${b._id ?? b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
+                  onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b._id, exId: b.exId, date: workout.date})}
                   onDeleteLog={onDeleteLog}
                 />
               );
@@ -2434,13 +2434,28 @@ function ExerciseBlock({ block, ex, blockLog, onLog, onDeleteLog }) {
   );
 }
 
-/** Compact display of a completed exercise */
+/** Compact display of a completed exercise (renders from the per-set log.sets) */
 function LoggedExerciseCard({ block, ex, log, onDelete }) {
-  const [showDetails, setShowDetails] = useState(false);
   const unit = log.unit || block?.unit || "lb";
-  const actualW = log.actualWeight != null ? toDisplay(log.actualWeight, unit) : null;
   const workType = block?.work_type || "reps";
   const isTime = workType === "time";
+  const isDistance = workType === "distance";
+  const distanceUnit = block?.distanceUnit || "m";
+  const sets = log.sets || [];
+
+  // One concrete set row -> "[L/R ]value[ @ weight]". side is only shown
+  // when it isn't bilateral (i.e. for expanded unilateral left/right rows).
+  const fmtSet = (s) => {
+    const sidePfx = s.side === "left" ? "L " : s.side === "right" ? "R " : "";
+    const w = s.weightLb != null ? ` @ ${toDisplay(s.weightLb, unit)}${unitLabel(unit)}` : "";
+    let core;
+    if (isTime) core = `${s.durationSeconds ?? "—"}s`;
+    else if (isDistance) core = `${convertFromMeters(s.distanceM, distanceUnit) ?? "—"}${distanceUnit}`;
+    else core = `${s.reps ?? "—"}`;
+    return `${sidePfx}${core}${w}`;
+  };
+
+  const summary = sets.length ? sets.map(fmtSet).join(" · ") : "logged";
 
   return (
     <div className="rounded-xl p-4 grow-in" style={{background:"#fff", border:"1px solid var(--good)"}}>
@@ -2453,19 +2468,10 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
             <span className="font-medium text-[15px]">{ex.name}</span>
             <SideChip side={block?.side}/>
             <WorkTypeChip workType={workType}/>
-            {log.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+            {log.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
           </div>
           <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
-            {log.mode === "modified" && log.perSet ? (
-              log.perSet.map(s => isTime
-                ? `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.actualSeconds ?? s.duration ?? "—"}s`
-                : `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`
-              ).join(" · ")
-            ) : isTime ? (
-              `${log.actualSets ?? block.sets} × ${log.actualReps ?? (block.durationSeconds ?? "—")}s hold${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-            ) : (
-              `${log.actualSets ?? block.sets} × ${log.actualReps ?? block.reps}${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-            )}
+            {summary}
           </div>
           {log.notes && <div className="text-[12px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
         </div>
@@ -2477,77 +2483,102 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
   );
 }
 
-/** Pre-filled log card — one-tap "Mark done" with optional Modified expansion */
+/** Pre-filled log card — one-tap "As prescribed" (fast path) or a per-set "Modified" path */
 function LogCard({ block, ex, onLog }) {
   const unit = block.unit || "lb";
   const workType = block.work_type || "reps";
   const isTime = workType === "time";
-  const [actualSets, setActualSets] = useState(block.sets);
-  const [actualReps, setActualReps] = useState(block.reps);
-  const [actualSeconds, setActualSeconds] = useState(block.durationSeconds ?? "");
-  const [actualWeight, setActualWeight] = useState(block.weight != null ? toDisplay(block.weight, unit) : "");
-  const [modified, setModified] = useState(false);
+  const isDistance = workType === "distance";
+  const isUnilateral = block.side === "unilateral";
+  const distanceUnit = block.distanceUnit || "m";
+  const [editing, setEditing] = useState(false);
   const [perSet, setPerSet] = useState([]);
   const [notes, setNotes] = useState("");
 
-  // When "Modified" toggles on, initialize perSet rows from the plan
-  const toggleModified = () => {
-    if (!modified) {
-      const rows = [];
-      const nSets = Number(block.sets) || 1;
-      for (let i = 0; i < nSets; i++) {
-        const row = isTime
-          ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
-          : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
-        rows.push(row);
-      }
-      setPerSet(rows);
-    }
-    setModified(!modified);
+  const plannedW = block.weight != null ? toDisplay(block.weight, unit) : null;
+  const weightLbOf = (displayVal) =>
+    displayVal === "" || displayVal == null ? null : fromDisplay(displayVal, unit);
+
+  // Fast path only: mirror the prescription onto both sides. The Modified
+  // path builds left/right from independent inputs (see saveModified).
+  const wrapSide = (base) => isUnilateral ? { left: base, right: { ...base } } : base;
+
+  const emit = (modified, sets) => {
+    onLog({
+      blockId: block._id,
+      source: "coach",
+      unit,
+      modified,
+      prescriptionSide: block.side,
+      notes,
+      sets,
+    });
+  };
+
+  // Fast path: log exactly the prescription, modified = false. Handles
+  // all three work types (reps / time / distance).
+  const logAsPrescribed = () => {
+    const n = Number(block.sets) || 1;
+    const base = {
+      reps: workType === "reps" ? block.reps : null,
+      durationSeconds: workType === "time" ? block.durationSeconds : null,
+      distanceM: workType === "distance" ? convertToMeters(block.distance, block.distanceUnit) : null,
+      weightLb: block.weight != null ? fromDisplay(block.weight, unit) : null,
+    };
+    const sets = [];
+    for (let i = 0; i < n; i++) sets.push(wrapSide({ ...base }));
+    emit(false, sets);
+  };
+
+  // Modified path: per-set form. Each "side object" holds a work-type
+  // value (reps / seconds / distance display) plus its weight; a row is a
+  // flat side object for bilateral, or { left, right } for unilateral.
+  const seedSide = () => ({
+    value: isTime ? (block.durationSeconds ?? "")
+         : isDistance ? (block.distance ?? "")
+         : (block.reps ?? ""),
+    weight: block.weight != null ? toDisplay(block.weight, unit) : "",
+  });
+  const seedRow = () => isUnilateral ? { left: seedSide(), right: seedSide() } : seedSide();
+
+  const startModified = () => {
+    const rows = [];
+    const n = Number(block.sets) || 1;
+    for (let i = 0; i < n; i++) rows.push(seedRow());
+    setPerSet(rows);
+    setEditing(true);
   };
 
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const addRow = () => {
-    const row = isTime
-      ? { duration: block.durationSeconds, actualSeconds: "", weight: block.weight != null ? toDisplay(block.weight, unit) : "" }
-      : { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" };
-    setPerSet([...perSet, row]);
-  };
+  const updateSide = (i, side, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, [side]: {...s[side], ...patch}} : s));
+  const addRow = () => setPerSet([...perSet, seedRow()]);
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
 
-  const markDone = () => {
-    if (modified) {
-      onLog({
-        completed: true,
-        mode: "modified",
-        actualSets: perSet.length,
-        actualReps: null,
-        actualWeight: null,
-        perSet: perSet.map(s => (
-          isTime
-            ? { actualSeconds: s.actualSeconds, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-        )),
-        notes,
-        source: "coach",
-        unit,
-      });
-    } else {
-      onLog({
-        completed: true,
-        mode: "asPlanned",
-        actualSets: Number(actualSets) || block.sets,
-        actualReps: isTime ? (actualSeconds === "" ? null : actualSeconds) : actualReps,
-        actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
-        perSet: null,
-        notes,
-        source: "coach",
-        unit,
-      });
-    }
+  // One side's display inputs -> canonical set fields (lb / meters / seconds).
+  const sideToCanonical = (sd) => ({
+    reps: (isTime || isDistance) ? null : sd.value,
+    durationSeconds: isTime ? (sd.value === "" || sd.value == null ? null : Number(sd.value)) : null,
+    distanceM: isDistance ? (sd.value === "" || sd.value == null ? null : convertToMeters(sd.value, distanceUnit)) : null,
+    weightLb: weightLbOf(sd.weight),
+  });
+
+  const saveModified = () => {
+    const sets = perSet.map((s) => isUnilateral
+      ? { left: sideToCanonical(s.left), right: sideToCanonical(s.right) }
+      : sideToCanonical(s));
+    emit(true, sets);
   };
 
-  const plannedW = block.weight != null ? toDisplay(block.weight, unit) : null;
+  // Work-type-aware value input + weight input, reused for bilateral and
+  // each of the L/R rows.
+  const valueField = (val, onChange) => isTime
+    ? <input type="text" inputMode="numeric" value={val} onChange={e => onChange(filterNumericInput(e.target.value, true))} placeholder="secs" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+    : isDistance
+      ? <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={distanceUnit} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+      : <input type="text" value={val} onChange={e => onChange(e.target.value)} placeholder="reps" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
+
+  const weightField = (val, onChange) =>
+    <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={unitLabel(unit)} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
 
   return (
     <div className="rounded-xl p-4" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
@@ -2562,96 +2593,123 @@ function LogCard({ block, ex, onLog }) {
           <div className="text-[11px] mono uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--muted)"}}>
             {isTime
               ? `planned: ${block.sets} × ${block.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`
-              : `planned: ${block.sets} × ${block.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`}
+              : workType === "distance"
+                ? `planned: ${block.sets} × ${block.distance ?? "—"}${block.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`
+                : `planned: ${block.sets} × ${block.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`}
           </div>
           {block.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{block.notes}</div>}
         </div>
       </div>
 
-      {!modified ? (
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Sets</label>
-            <input type="text" inputMode="numeric" value={actualSets} onChange={e => setActualSets(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+      {!editing ? (
+        <>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
+            className="field mb-3" style={{padding:"6px 10px", fontSize:"12px", width:"100%"}}/>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={logAsPrescribed} className="btn btn-accent justify-center">
+              <Check size={14}/> As prescribed
+            </button>
+            <button onClick={startModified} className="btn justify-center" style={{border:"1px solid var(--line-2)"}}>
+              Modified
+            </button>
           </div>
-          {isTime ? (
-            <div>
-              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Duration (s)</label>
-              <input type="text" inputMode="numeric" value={actualSeconds} onChange={e => setActualSeconds(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-            </div>
-          ) : (
-            <div>
-              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
-              <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-            </div>
-          )}
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Weight ({unitLabel(unit)})</label>
-            <input type="text" inputMode="decimal" value={actualWeight} onChange={e => setActualWeight(filterNumericInput(e.target.value))} placeholder="—" className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-        </div>
+        </>
       ) : (
-        <div className="space-y-1.5 mb-3">
-          {perSet.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-              {isTime ? (
-                <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
-                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              ) : (
-                <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              )}
-              <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={`${unitLabel(unit)}`}
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
-            </div>
-          ))}
-          <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
-        </div>
+        <>
+          <div className="space-y-2 mb-3">
+            {perSet.map((s, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="mono text-[10px] uppercase tabular w-10 pt-2" style={{color:"var(--muted)"}}>Set {i+1}</span>
+                {isUnilateral ? (
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="mono text-[10px] uppercase w-3" style={{color:"var(--muted)"}}>L</span>
+                      {valueField(s.left.value, v => updateSide(i, "left", {value: v}))}
+                      {weightField(s.left.weight, v => updateSide(i, "left", {weight: v}))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="mono text-[10px] uppercase w-3" style={{color:"var(--muted)"}}>R</span>
+                      {valueField(s.right.value, v => updateSide(i, "right", {value: v}))}
+                      {weightField(s.right.weight, v => updateSide(i, "right", {weight: v}))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 flex-1">
+                    {valueField(s.value, v => updatePerSet(i, {value: v}))}
+                    {weightField(s.weight, v => updatePerSet(i, {weight: v}))}
+                  </div>
+                )}
+                <button onClick={() => removeRow(i)} className="p-1 rounded mt-1" style={{color:"var(--muted)"}}><X size={12}/></button>
+              </div>
+            ))}
+            <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
+          </div>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
+            className="field mb-3" style={{padding:"6px 10px", fontSize:"12px", width:"100%"}}/>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setEditing(false)} className="btn justify-center" style={{border:"1px solid var(--line-2)"}}>
+              Cancel
+            </button>
+            <button onClick={saveModified} className="btn btn-accent justify-center">
+              <Check size={14}/> Save modified
+            </button>
+          </div>
+        </>
       )}
-
-      <div className="flex items-center gap-2 mb-3">
-        <label className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{color:"var(--ink-2)"}}>
-          <input type="checkbox" checked={modified} onChange={toggleModified}/>
-          Modified
-        </label>
-        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
-          className="field" style={{padding:"6px 10px", fontSize:"12px", flex:1}}/>
-      </div>
-
-      <button onClick={markDone} className="btn btn-accent w-full justify-center">
-        <Check size={14}/> Mark done
-      </button>
     </div>
   );
 }
 
 /* -----------------------------  HISTORY TAB  ----------------------------- */
+// Total volume in lb for a per-set log. Reps: weight × reps (unweighted = 0).
+// Time/distance: weight defaults to 1 so an unweighted hold/carry still
+// contributes its time/distance. Unilateral left+right rows both count.
+function logVolumeLb(log, block) {
+  const wt = block?.work_type || "reps";
+  return (log.sets || []).reduce((acc, s) => {
+    const w = Number(s.weightLb) || 0;
+    if (wt === "time") return acc + (Number(s.durationSeconds) || 0) * (w || 1);
+    if (wt === "distance") return acc + (Number(s.distanceM) || 0) * (w || 1);
+    return acc + w * (Number(s.reps) || 0);
+  }, 0);
+}
+
+// Per-set actuals grid for a history detail row, rendered from log.sets.
+function LoggedSetsGrid({ log, block, logUnit }) {
+  const wt = block?.work_type || "reps";
+  const isTime = wt === "time";
+  const isDistance = wt === "distance";
+  const distanceUnit = block?.distanceUnit || "m";
+  const sets = log.sets || [];
+  if (!sets.length) {
+    return <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>Logged</div>;
+  }
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
+      {sets.map((s, si) => {
+        const sidePfx = s.side === "left" ? "L " : s.side === "right" ? "R " : "";
+        const core = isTime ? `${s.durationSeconds ?? "—"}s`
+          : isDistance ? `${convertFromMeters(s.distanceM, distanceUnit) ?? "—"}${distanceUnit}`
+          : `${s.reps ?? "—"}`;
+        return (
+          <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
+            <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>{sidePfx}Set {s.setNumber}</div>
+            <div className="text-[13px] font-medium">
+              {s.weightLb != null && s.weightLb > 0 && <>{toDisplay(s.weightLb, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
+              {core}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitPref = "lb" }) {
   const [openId, setOpenId] = useState(null);
   const past = clientWorkouts.filter(w => w.date <= today()).sort((a,b) => b.date.localeCompare(a.date));
   const totalExercises = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId)).length;
   const attendedCount = attendance.filter(a => a.status === "present" && clientWorkouts.some(w => w.id === a.workoutId)).length;
-  // For time-based blocks, weight defaults to 1 so an unweighted hold still contributes
-  // its time-under-tension to volume.
-  const volumeFor = (log, block) => {
-    const isTime = block?.work_type === "time";
-    if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => isTime
-        ? acc + (parseInt(s.actualSeconds) || 0) * (parseFloat(s.weight) || 1)
-        : acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0)
-      , 0);
-    }
-    const sets = Number(log.actualSets) || 0;
-    const reps = parseInt(log.actualReps) || 0;
-    if (isTime) {
-      const wt = parseFloat(log.actualWeight) || 1;
-      return sets * reps * wt;
-    }
-    const wt = Number(log.actualWeight) || 0;
-    return sets * reps * wt;
-  };
   return (
     <div>
       <div className="grid grid-cols-3 gap-4 mb-8">
@@ -2667,7 +2725,7 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
             const att = attendance.find(a => a.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l, w.blocks.find(b => b.exId === l.exId)), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + logVolumeLb(l, w.blocks.find(b => b._id === l.blockId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
             const isOpen = openId === w.id;
             return (
@@ -2701,11 +2759,12 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
                       const renderHistBlock = (b, i) => {
                         const ex = exercises.find(e => e.id === b.exId);
                         if (!ex) return null;
-                        const log = wLogs.find(l => l.exId === b.exId);
+                        const log = wLogs.find(l => l.blockId === b._id);
                         const bUnit = b.unit || "lb";
                         const logUnit = log?.unit || bUnit;
                         const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
                         const isTime = b.work_type === "time";
+                        const isDistance = b.work_type === "distance";
                         return (
                           <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
                             <div className="flex items-start gap-2.5 mb-2">
@@ -2714,40 +2773,23 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium">{ex.name}</span>
                                   <WorkTypeChip workType={b.work_type}/>
-                                  {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+                                  {log?.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
                                 </div>
                                 <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
                                   {isTime
                                     ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
-                                    : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
+                                    : isDistance
+                                      ? `planned ${b.sets}×${b.distance ?? "—"}${b.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                      : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
                                 </div>
                                 {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                               </div>
                             </div>
                             {log ? (
-                              log.mode === "modified" && log.perSet ? (
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
-                                  {log.perSet.map((s, si) => (
-                                    <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                      <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
-                                      <div className="text-[13px] font-medium">
-                                        {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
-                                        {isTime ? `${s.actualSeconds ?? s.duration ?? "—"}s` : s.reps}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                  <span className="text-[13px] font-medium">
-                                    {isTime
-                                      ? `${log.actualSets ?? b.sets} × ${log.actualReps ?? (b.durationSeconds ?? "—")}s hold`
-                                      : `${log.actualSets ?? b.sets} × ${log.actualReps ?? b.reps}`}
-                                    {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
-                                  </span>
-                                  {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
-                                </div>
-                              )
+                              <>
+                                <LoggedSetsGrid log={log} block={b} logUnit={logUnit}/>
+                                {log.notes && <div className="text-[11px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
+                              </>
                             ) : (
                               <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
                                 Not logged
@@ -3481,7 +3523,7 @@ function TemplateCard({ tpl, exercises, onEdit, onDelete, onAssign }) {
               <div key={i} className="flex items-center gap-2 text-[12px]">
                 <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
                 <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
-                <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.reps}</span>
+                <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.work_type === "distance" ? `${b.distance ?? "—"}${b.distanceUnit || "m"}` : (b.reps ?? "—")}</span>
               </div>
             );
           };
@@ -3737,7 +3779,7 @@ function ExerciseCard({ ex, onClick, compact }) {
       </div>
       {!compact && (
         <div className="flex items-center gap-2 mt-3 pt-3" style={{borderTop:"1px solid var(--line-2)"}}>
-          <span className="mono text-[10px] uppercase tabular" style={{color:"var(--ink-2)"}}>{ex.defSets}×{ex.defReps}</span>
+          <span className="mono text-[10px] uppercase tabular" style={{color:"var(--ink-2)"}}>{ex.defSets}×{exDefValue(ex)}</span>
           <span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>· {ex.defRest}s</span>
         </div>
       )}
@@ -3745,10 +3787,20 @@ function ExerciseCard({ ex, onClick, compact }) {
   );
 }
 
+// Library-row summary value: shows the right default per measurement type
+// (reps -> "10", time -> "30s", distance -> "40m"/"40yd").
+function exDefValue(ex) {
+  if (ex.defWorkType === "time") return `${ex.defDurationSeconds ?? "—"}s`;
+  if (ex.defWorkType === "distance") return `${ex.defDistance ?? "—"}${ex.defDistanceUnit || "m"}`;
+  return `${ex.defReps ?? "—"}`;
+}
+
 function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete }) {
   const [draft, setDraft] = useState(ex || {
     name: "", movement: "push", muscles: [], equipment: [], difficulty: "beginner", tags: [], contraindications: [],
-    defSets: 3, defReps: "10", defRest: 90, notes: ""
+    defSets: 3, defReps: 10, defRest: 90,
+    defWorkType: "reps", defDurationSeconds: null, defDistance: null, defDistanceUnit: "m", defSide: "bilateral",
+    notes: ""
   });
   const upd = (k, v) => setDraft({...draft, [k]: v});
 
@@ -3758,6 +3810,20 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
     e.name.trim().toLowerCase() === trimmedName && e.id !== draft.id
   );
   const canSave = draft.name.trim() && !duplicateExists;
+
+  // On save, keep only the active measurement's value; null the others so
+  // each exercise stores exactly one of reps / duration / distance.
+  const handleSave = () => {
+    if (!canSave) return;
+    const wt = draft.defWorkType || "reps";
+    onSave({
+      ...draft,
+      defWorkType: wt,
+      defReps: wt === "reps" ? draft.defReps : null,
+      defDurationSeconds: wt === "time" ? draft.defDurationSeconds : null,
+      defDistance: wt === "distance" ? draft.defDistance : null,
+    });
+  };
 
   return (
     <Modal onClose={onClose} title={ex ? "Edit exercise" : "New exercise"} wide>
@@ -3791,10 +3857,25 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
         <TagEditor label="Muscle groups" values={draft.muscles} suggestions={["chest","back","shoulders","biceps","triceps","quads","hamstrings","glutes","calves","core","lats","traps"]} onChange={v => upd("muscles", v)}/>
         <TagEditor label="Tags" values={draft.tags} suggestions={["compound","isolation","upper","lower","bodyweight","unilateral","posterior","power","conditioning","mobility","warmup","beginner-friendly","flexibility","prenatal-safe","shoulder-health"]} onChange={v => upd("tags", v)}/>
         <TagEditor label="Contraindications" values={draft.contraindications} suggestions={["shoulder injury","knee injury","low back injury","wrist injury","prenatal caution","disc issue","elbow injury"]} onChange={v => upd("contraindications", v)}/>
-        <div className="grid grid-cols-3 gap-3">
-          <NumericField label="Default sets" value={draft.defSets} onChange={n => upd("defSets", n)} integer/>
-          <Field label="Default reps" value={draft.defReps} onChange={v => upd("defReps", v)}/>
-          <NumericField label="Rest (sec)" value={draft.defRest} onChange={n => upd("defRest", n)} integer/>
+        <div>
+          <WorkTypeToggle workType={draft.defWorkType || "reps"} onChange={w => upd("defWorkType", w)}/>
+          {draft.defWorkType === "distance" && (
+            <div className="flex justify-end mt-1">
+              <DistanceUnitToggle unit={draft.defDistanceUnit || "m"} onChange={u => upd("defDistanceUnit", u)}/>
+            </div>
+          )}
+          <SideToggle side={draft.defSide || "bilateral"} onChange={s => upd("defSide", s)}/>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            <NumericField label="Default sets" value={draft.defSets} onChange={n => upd("defSets", n)} integer/>
+            {draft.defWorkType === "time" ? (
+              <NumericField label="Duration (s)" value={draft.defDurationSeconds} onChange={n => upd("defDurationSeconds", n)} integer/>
+            ) : draft.defWorkType === "distance" ? (
+              <NumericField label={`Distance (${draft.defDistanceUnit || "m"})`} value={draft.defDistance} onChange={n => upd("defDistance", n)} placeholder="—"/>
+            ) : (
+              <NumericField label="Default reps" value={draft.defReps} onChange={n => upd("defReps", n)} integer/>
+            )}
+            <NumericField label="Rest (sec)" value={draft.defRest} onChange={n => upd("defRest", n)} integer/>
+          </div>
         </div>
         <Field label="Notes" multi value={draft.notes || ""} onChange={v => upd("notes", v)}/>
       </div>
@@ -3802,7 +3883,7 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
         {ex && onDelete && <button onClick={onDelete} className="btn btn-ghost" style={{color:"var(--danger)"}}><Trash2 size={14}/> Delete</button>}
         <div className="ml-auto flex gap-2">
           <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-          <button onClick={() => canSave && onSave(draft)} disabled={!canSave}
+          <button onClick={handleSave} disabled={!canSave}
             style={!canSave ? {opacity:0.45, cursor:"not-allowed"} : {}}
             className="btn btn-primary"><Check size={14}/> Save</button>
         </div>
@@ -4042,7 +4123,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   }, [client, workout.blocks, exercises, applyClientFilter]);
 
   const addExercise = (ex) => {
-    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: ex.defReps, weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "" }]});
+    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: repsOrNull(ex.defReps), weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "", work_type: ex.defWorkType || "reps", durationSeconds: ex.defDurationSeconds ?? null, distance: ex.defDistance ?? null, distanceUnit: ex.defDistanceUnit || "m", side: ex.defSide || "bilateral" }]});
     notify?.(`Added ${ex.name}`);
   };
   const removeBlock = (i) => {
@@ -4167,7 +4248,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 <span className={`dot ${movementClass(ex.movement)}`} style={{width:"9px",height:"9px"}}/>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{ex.name}</div>
-                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{ex.defReps} · {ex.difficulty}</div>
+                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{exDefValue(ex)} · {ex.difficulty}</div>
                 </div>
                 <Plus size={14} style={{color:"var(--muted)"}}/>
               </button>
@@ -4449,13 +4530,20 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
             </div>
           </div>
           <WorkTypeToggle workType={workType} onChange={setWorkType}/>
+          {workType === "distance" && (
+            <div className="flex justify-end mt-1">
+              <DistanceUnitToggle unit={block.distanceUnit || "m"} onChange={u => onUpdate({distanceUnit: u})}/>
+            </div>
+          )}
           <SideToggle side={side} onChange={setSide}/>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
             <NumericField label="Sets" value={block.sets} onChange={n => onUpdate({sets: n})} integer mini/>
             {workType === "time" ? (
               <NumericField label="Duration (s)" value={block.durationSeconds} onChange={n => onUpdate({durationSeconds: n})} integer mini/>
+            ) : workType === "distance" ? (
+              <NumericField label={`Dist (${block.distanceUnit || "m"})`} value={block.distance} onChange={n => onUpdate({distance: n})} placeholder="—" mini/>
             ) : (
-              <MiniField label="Reps" value={block.reps} onChange={v => onUpdate({reps: v})}/>
+              <NumericField label="Reps" value={block.reps} onChange={n => onUpdate({reps: n})} integer mini/>
             )}
             <NumericField label={`Weight (${unitLabel(unit)})`} value={block.weight != null ? toDisplay(block.weight, unit) : null}
               onChange={n => onUpdate({weight: n == null ? null : fromDisplay(n, unit)})} placeholder="—" mini/>
@@ -4472,6 +4560,23 @@ function UnitToggle({ unit, onChange }) {
   return (
     <div className="flex gap-0.5 p-0.5 rounded-lg" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
       {["lb","kg"].map(u => (
+        <button key={u} onClick={() => onChange(u)}
+          type="button"
+          className="px-2 py-0.5 rounded text-[10px] font-medium mono uppercase tracking-wide"
+          style={unit === u
+            ? {background:"var(--ink)", color:"var(--paper)"}
+            : {background:"transparent", color:"var(--muted)"}}>
+          {u}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DistanceUnitToggle({ unit, onChange }) {
+  return (
+    <div className="flex gap-0.5 p-0.5 rounded-lg" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+      {["m","yd"].map(u => (
         <button key={u} onClick={() => onChange(u)}
           type="button"
           className="px-2 py-0.5 rounded text-[10px] font-medium mono uppercase tracking-wide"
@@ -4519,6 +4624,7 @@ function SideChip({ side }) {
 const WORK_TYPE_OPTIONS = [
   { value: "reps", label: "Reps" },
   { value: "time", label: "Time" },
+  { value: "distance", label: "Distance" },
 ];
 
 function WorkTypeToggle({ workType, onChange }) {
@@ -4873,25 +4979,6 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
 function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
   const [openId, setOpenId] = useState(null);
 
-  // For time-based blocks, weight defaults to 1 so an unweighted hold still contributes
-  // its time-under-tension to volume.
-  const volumeFor = (log, block) => {
-    const isTime = block?.work_type === "time";
-    if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => isTime
-        ? acc + (parseInt(s.actualSeconds) || 0) * (parseFloat(s.weight) || 1)
-        : acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0)
-      , 0);
-    }
-    const sets = Number(log.actualSets) || 0;
-    const reps = parseInt(log.actualReps) || 0;
-    if (isTime) {
-      const wt = parseFloat(log.actualWeight) || 1;
-      return sets * reps * wt;
-    }
-    const wt = Number(log.actualWeight) || 0;
-    return sets * reps * wt;
-  };
 
   return (
     <div>
@@ -4908,7 +4995,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
         <div className="space-y-2">
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l, w.blocks.find(b => b.exId === l.exId)), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + logVolumeLb(l, w.blocks.find(b => b._id === l.blockId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
             const isOpen = openId === w.id;
             return (
@@ -4942,11 +5029,12 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                       const renderHistBlock = (b, i) => {
                         const ex = exercises.find(e => e.id === b.exId);
                         if (!ex) return null;
-                        const log = wLogs.find(l => l.exId === b.exId);
+                        const log = wLogs.find(l => l.blockId === b._id);
                         const bUnit = b.unit || "lb";
                         const logUnit = log?.unit || bUnit;
                         const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
                         const isTime = b.work_type === "time";
+                        const isDistance = b.work_type === "distance";
                         return (
                           <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
                             <div className="flex items-start gap-2.5 mb-2">
@@ -4955,40 +5043,23 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium">{ex.name}</span>
                                   <WorkTypeChip workType={b.work_type}/>
-                                  {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+                                  {log?.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
                                 </div>
                                 <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
                                   {isTime
                                     ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
-                                    : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
+                                    : isDistance
+                                      ? `planned ${b.sets}×${b.distance ?? "—"}${b.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                      : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
                                 </div>
                                 {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                               </div>
                             </div>
                             {log ? (
-                              log.mode === "modified" && log.perSet ? (
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
-                                  {log.perSet.map((s, si) => (
-                                    <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                      <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
-                                      <div className="text-[13px] font-medium">
-                                        {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
-                                        {isTime ? `${s.actualSeconds ?? s.duration ?? "—"}s` : s.reps}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                  <span className="text-[13px] font-medium">
-                                    {isTime
-                                      ? `${log.actualSets ?? b.sets} × ${log.actualReps ?? (b.durationSeconds ?? "—")}s hold`
-                                      : `${log.actualSets ?? b.sets} × ${log.actualReps ?? b.reps}`}
-                                    {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
-                                  </span>
-                                  {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
-                                </div>
-                              )
+                              <>
+                                <LoggedSetsGrid log={log} block={b} logUnit={logUnit}/>
+                                {log.notes && <div className="text-[11px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
+                              </>
                             ) : (
                               <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
                                 Not logged
@@ -5031,6 +5102,28 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
 }
 
 function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDirected, onLog }) {
+  // GATED FOR CUTOVER: ad-hoc independent ("solo") logging is temporarily
+  // unavailable. Its session lifecycle predates the Supabase/per-set schema
+  // — it logs against an un-persisted, non-UUID session id with no block_id,
+  // so it cannot write valid logs — and is being rebuilt as the lead
+  // post-cutover self-logging feature. This early return prevents invalid
+  // writes; delete it (and restore the flow below) at rebuild time.
+  return (
+    <div>
+      <div className="mb-6">
+        <div className="mono text-[10px] uppercase tracking-[0.2em]" style={{color:"var(--muted)"}}>— Log solo</div>
+        <h1 className="display text-3xl font-light tracking-tight mt-1">Independent session</h1>
+      </div>
+      <div className="card p-6 text-center">
+        <div className="mono text-[11px] uppercase tracking-wider mb-2" style={{color:"var(--muted)"}}>Coming soon</div>
+        <div className="text-sm" style={{color:"var(--ink-2)"}}>
+          Independent self-logging is being rebuilt. For now, log from the client's assigned program.
+        </div>
+      </div>
+    </div>
+  );
+
+  // eslint-disable-next-line no-unreachable
   // Self-directed session: client picks exercises, logs sets, saves
   const [session, setSession] = useState(null); // { id, blocks: [{exId, sets}] }
   const [name, setName] = useState("");
@@ -5394,7 +5487,7 @@ function ClientExercisePicker({ exercises, client, onClose, onPick }) {
             <span className={`dot ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
             <div className="flex-1 min-w-0">
               <div className="text-[13px] font-medium truncate">{ex.name}</div>
-              <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{ex.defReps}</div>
+              <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{exDefValue(ex)}</div>
             </div>
             <Plus size={13} style={{color:"var(--muted)"}}/>
           </button>
