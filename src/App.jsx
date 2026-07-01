@@ -4304,6 +4304,14 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 Save as template
               </label>
             </div>
+            {!workout.isTemplate && (
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-xs cursor-pointer px-3 py-2.5 rounded-lg hover-lift" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+                  <input type="checkbox" checked={!!workout.isSelfDirected} onChange={e => setWorkout({...workout, isSelfDirected: e.target.checked})}/>
+                  Client logs this session
+                </label>
+              </div>
+            )}
           </div>
 
           <div className="mb-6">
