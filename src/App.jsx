@@ -831,6 +831,13 @@ export default function CoachApp() {
                   alert("Failed to save log: " + err.message);
                 }
               }}
+              onDeleteLog={async (id) => {
+                try { await deleteLog(id); }
+                catch (err) {
+                  console.error("log delete failed", err);
+                  alert("Failed to delete log: " + err.message);
+                }
+              }}
               onCreateSelfDirected={async (workout) => {
                 const w = { ...workout, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
                 try {
@@ -4796,7 +4803,7 @@ function Modal({ onClose, title, children, wide, hideClose }) {
 /* ============================================================
    CLIENT VIEW — simplified interface for end-clients
    ============================================================ */
-function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected }) {
+function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected, onDeleteLog }) {
   const [tab, setTab] = useState("today"); // today | history | log | notes
   const t = today();
   const nextWorkout = useMemo(() => {
@@ -4830,7 +4837,7 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[680px] mx-auto px-5 py-6">
-          {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")}/>}
+          {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")} onLog={onLog} onDeleteLog={onDeleteLog}/>}
           {tab === "history" && <ClientHistoryTab past={past} exercises={exercises} logs={logs} unitPref={unitPref}/>}
           {tab === "log" && <ClientLogTab client={client} exercises={exercises} logs={logs} unitPref={unitPref} onCreateSelfDirected={onCreateSelfDirected} onLog={onLog}/>}
           {tab === "notes" && <ClientNotesTab client={client}/>}
@@ -4861,7 +4868,7 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
   );
 }
 
-function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref = "lb", onGoLog }) {
+function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref = "lb", onGoLog, onLog, onDeleteLog }) {
   const greeting = (() => {
     const h = new Date().getHours();
     if (h < 12) return "Good morning";
@@ -4894,8 +4901,39 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
               </span>
             </div>
             <div className="mono text-[10px] uppercase tracking-wider mb-4" style={{color:"var(--muted)"}}>
-              {nextWorkout.blocks.length} exercises · with your coach
+              {nextWorkout.blocks.length} exercises · {nextWorkout.isSelfDirected ? "log it yourself" : "with your coach"}
             </div>
+            {nextWorkout.isSelfDirected && (
+              <div className="space-y-2">
+                {(() => {
+                  const wLogs = logs.filter(l => l.workoutId === nextWorkout.id);
+                  const wire = (b) => ({
+                    block: b,
+                    ex: exercises.find(e => e.id === b.exId),
+                    blockLog: wLogs.find(l => l.blockId === b._id),
+                    onLog: (log) => onLog({...log, workoutId: nextWorkout.id, blockId: b._id, exId: b.exId, date: nextWorkout.date}),
+                  });
+                  return groupRenderItems(nextWorkout.blocks).map((item, idx) => {
+                    if (item.type === 'group') {
+                      const [b1, b2] = item.blocks;
+                      const w1 = wire(b1), w2 = wire(b2);
+                      return (
+                        <div key={`g-${b1.groupId}`} className="rounded-2xl p-3" style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                          <div className="px-1 pb-2"><SupersetChip/></div>
+                          <div className="grid md:grid-cols-2 gap-2">
+                            <ExerciseBlock block={w1.block} ex={w1.ex} blockLog={w1.blockLog} onLog={w1.onLog} onDeleteLog={onDeleteLog}/>
+                            <ExerciseBlock block={w2.block} ex={w2.ex} blockLog={w2.blockLog} onLog={w2.onLog} onDeleteLog={onDeleteLog}/>
+                          </div>
+                        </div>
+                      );
+                    }
+                    const w = wire(item.block);
+                    return <ExerciseBlock key={`b-${item.block._id ?? item.block.exId}-${idx}`} block={w.block} ex={w.ex} blockLog={w.blockLog} onLog={w.onLog} onDeleteLog={onDeleteLog}/>;
+                  });
+                })()}
+              </div>
+            )}
+            {!nextWorkout.isSelfDirected && (
             <div className="space-y-2">
               {(() => {
                 const renderRow = (b, i) => {
@@ -4943,12 +4981,15 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
                 });
               })()}
             </div>
+            )}
+            {!nextWorkout.isSelfDirected && (
             <div className="mt-4 p-3 rounded-lg flex items-start gap-2.5" style={{background:"var(--paper-2)", border:"1px dashed var(--line)"}}>
               <AlertTriangle size={13} style={{color:"var(--muted)", marginTop:"2px"}}/>
               <div className="text-[12px]" style={{color:"var(--ink-2)"}}>
                 Your coach will log your sets during this session. You can add notes in the <b>Notes</b> tab.
               </div>
             </div>
+            )}
           </div>
         </section>
       ) : (
