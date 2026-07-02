@@ -2855,19 +2855,13 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
   const prs = useMemo(() => {
     const byEx = {};
     logs.forEach(l => {
-      // Determine max weight for this log entry — check perSet OR actualWeight
-      let maxW = 0, reps = l.actualReps, date = l.date;
-      if (l.mode === "modified" && l.perSet) {
-        l.perSet.forEach(s => {
-          const w = Number(s.weight) || 0;
-          if (w > maxW) { maxW = w; reps = s.reps; }
-        });
-      } else {
-        maxW = Number(l.actualWeight) || 0;
-      }
-      if (maxW > 0 && (!byEx[l.exId] || maxW > byEx[l.exId].weight)) {
-        byEx[l.exId] = { weight: maxW, date, reps };
-      }
+      // Max weighted set for this exercise, read from the per-set log.sets shape.
+      (l.sets || []).forEach(s => {
+        const w = Number(s.weightLb) || 0;
+        if (w > 0 && (!byEx[l.exId] || w > byEx[l.exId].weight)) {
+          byEx[l.exId] = { weight: w, date: l.date, reps: s.reps };
+        }
+      });
     });
     return Object.entries(byEx).map(([exId, rec]) => ({ ex: exercises.find(e => e.id === exId), ...rec }))
       .filter(x => x.ex && x.weight > 0).sort((a,b) => b.weight - a.weight);
