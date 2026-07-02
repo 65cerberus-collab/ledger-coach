@@ -50,6 +50,13 @@ const WORKOUT_SELECT = `
   )
 `;
 
+const BLOCK_SELECT = `
+  id, workout_id, exercise_id, position, sets, reps,
+  weight_lb, rest_seconds, unit, notes, side,
+  work_type, duration_seconds, distance_m, distance_unit,
+  group_id, group_position
+`;
+
 function blockFromRow(row) {
   return {
     _id: row.id,
@@ -188,14 +195,46 @@ export function useWorkouts(coachId) {
       }
     }
 
-    const created = {
-      ...camelWorkout,
-      id: workoutId,
-      coachId: camelWorkout.coachId ?? coachId,
-      blocks,
-    };
+    // Re-read the created workout so its blocks carry their real database ids.
+    // Needed to log against those blocks in the same session (e.g. solo
+    // self-logging), since block ids are generated server-side on insert.
+    const { data: createdRow, error: refetchError } = await supabase
+      .from('workouts')
+      .select(WORKOUT_SELECT)
+      .eq('id', workoutId)
+      .single();
+    if (refetchError) {
+      throw new Error(`Workout created but could not be re-read: ${refetchError.message}`);
+    }
+
+    const created = fromRow(createdRow);
     setWorkouts(prev => [...prev, created]);
     return created;
+  };
+
+  // Append a single block to an existing workout without disturbing the others.
+  // Inserts one row and reads it back so the returned block carries its real
+  // database id (safe to log against immediately, and never re-generates the
+  // ids of blocks already present, unlike updateWorkout's delete-and-reinsert).
+  const addBlock = async (workoutId, block) => {
+    const target = workouts.find(w => w.id === workoutId);
+    const position = target ? target.blocks.length : 0;
+    const blockRow = toBlockRow(block, workoutId, position);
+
+    const { data, error: insertBlockError } = await supabase
+      .from('workout_blocks')
+      .insert(blockRow)
+      .select(BLOCK_SELECT)
+      .single();
+    if (insertBlockError) {
+      throw new Error(`Failed to add exercise: ${insertBlockError.message}`);
+    }
+
+    const hydrated = blockFromRow(data);
+    setWorkouts(prev => prev.map(w => w.id === workoutId
+      ? { ...w, blocks: [...w.blocks, hydrated] }
+      : w));
+    return hydrated;
   };
 
   const updateWorkout = async (id, camelWorkout) => {
@@ -281,5 +320,5 @@ export function useWorkouts(coachId) {
     return updated;
   };
 
-  return { workouts, loading, error, createWorkout, updateWorkout, deleteWorkout, completeWorkout, uncompleteWorkout };
+  return { workouts, loading, error, createWorkout, addBlock, updateWorkout, deleteWorkout, completeWorkout, uncompleteWorkout };
 }
