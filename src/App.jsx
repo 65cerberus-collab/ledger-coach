@@ -2582,7 +2582,7 @@ function LogCard({ block, ex, onLog }) {
     ? <input type="text" inputMode="numeric" value={val} onChange={e => onChange(filterNumericInput(e.target.value, true))} placeholder="secs" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
     : isDistance
       ? <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={distanceUnit} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-      : <input type="text" value={val} onChange={e => onChange(e.target.value)} placeholder="reps" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
+      : <input type="text" inputMode="numeric" value={val} onChange={e => onChange(filterNumericInput(e.target.value, true))} placeholder="reps" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
 
   const weightField = (val, onChange) =>
     <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={unitLabel(unit)} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
