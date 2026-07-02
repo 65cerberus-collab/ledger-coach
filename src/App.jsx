@@ -2867,6 +2867,30 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
       .filter(x => x.ex && x.weight > 0).sort((a,b) => b.weight - a.weight);
   }, [logs, exercises]);
 
+  const recentPRs = useMemo(() => {
+    // Flatten weighted sets, walk chronologically, and record each time an
+    // exercise beats its previous best. The first weighted set for an exercise
+    // is a baseline (not a "beat"). Then keep only PR events from the last 4 weeks.
+    const rows = [];
+    logs.forEach(l => (l.sets || []).forEach(s => {
+      const w = Number(s.weightLb) || 0;
+      if (w > 0) rows.push({ exId: l.exId, weight: w, reps: s.reps, date: l.date });
+    }));
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    const runningMax = {};
+    const events = [];
+    rows.forEach(r => {
+      const prev = runningMax[r.exId];
+      if (prev == null) { runningMax[r.exId] = r.weight; }
+      else if (r.weight > prev) { runningMax[r.exId] = r.weight; events.push(r); }
+    });
+    const cutoff = addDays(today(), -28);
+    return events.filter(e => e.date >= cutoff)
+      .map(e => ({ ...e, ex: exercises.find(x => x.id === e.exId) }))
+      .filter(e => e.ex)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [logs, exercises]);
+
   const [addingBW, setAddingBW] = useState(false);
   const [newBW, setNewBW] = useState("");
 
@@ -2885,6 +2909,29 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <section>
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="display text-2xl tracking-tight">Recent PRs</h2>
+          <span className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>last 4 weeks</span>
+        </div>
+        {recentPRs.length === 0 ? (
+          <div className="card p-5 text-sm mb-8" style={{color:"var(--muted)"}}>No new PRs in the last 4 weeks.</div>
+        ) : (
+          <div className="card mb-8">
+            {recentPRs.slice(0, 8).map((p, i) => (
+              <div key={i} className="flex items-center gap-4 p-4" style={i>0?{borderTop:"1px solid var(--line-2)"}:{}}>
+                <span className={"dot " + movementClass(p.ex.movement)} style={{width:"8px",height:"8px"}}/>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-[14px] truncate">{p.ex.name}</div>
+                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{shortDate(p.date)}</div>
+                </div>
+                <div className="text-right tabular">
+                  <div className="display text-xl font-light" style={{color:"var(--accent)"}}>{toDisplay(p.weight, unitPref)}<span className="text-xs" style={{color:"var(--muted)"}}>{unitLabel(unitPref)}</span></div>
+                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>× {p.reps}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-baseline justify-between mb-4">
           <h2 className="display text-2xl tracking-tight">Personal records</h2>
           <span className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>{prs.length} tracked</span>
