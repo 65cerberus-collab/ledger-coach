@@ -839,7 +839,9 @@ export default function CoachApp() {
                 }
               }}
               onCreateSelfDirected={async (workout) => {
-                const w = { ...workout, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
+                const existingNames = workouts.filter(w => w.clientId === selectedClient.id).map(w => w.name).filter(Boolean);
+                const name = uniqueWorkoutName(workout.name, existingNames);
+                const w = { ...workout, name, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
                 try {
                   const created = await createWorkout(w);
                   notify("Session created");
