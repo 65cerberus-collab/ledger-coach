@@ -413,7 +413,7 @@ export default function CoachApp() {
     })),
     [dbClients]
   );
-  const { workouts, createWorkout, updateWorkout, deleteWorkout, completeWorkout, uncompleteWorkout } = useWorkouts(currentCoachId);
+  const { workouts, createWorkout, addBlock, updateWorkout, deleteWorkout, completeWorkout, uncompleteWorkout } = useWorkouts(currentCoachId);
   const { exercises, createExercise, updateExercise, deleteExercise } = useExercises(currentCoachId);
   const { logs, createLog, deleteLog } = useLogs(currentCoachId);
   const { attendance, setAttendance: upsertAttendance } = useAttendance(currentCoachId);
@@ -839,17 +839,20 @@ export default function CoachApp() {
                 }
               }}
               onCreateSelfDirected={async (workout) => {
-                const w = { ...workout, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
+                const existingNames = workouts.filter(w => w.clientId === selectedClient.id).map(w => w.name).filter(Boolean);
+                const name = uniqueWorkoutName(workout.name, existingNames);
+                const w = { ...workout, name, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
                 try {
                   const created = await createWorkout(w);
                   notify("Session created");
-                  return created.id;
+                  return created;
                 } catch (err) {
                   console.error("createWorkout failed", err);
                   alert("Failed to create session. Please try again.");
                   return null;
                 }
               }}
+              addBlock={addBlock}
             />
           )}
         </main>
@@ -4803,7 +4806,7 @@ function Modal({ onClose, title, children, wide, hideClose }) {
 /* ============================================================
    CLIENT VIEW — simplified interface for end-clients
    ============================================================ */
-function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected, onDeleteLog }) {
+function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected, onDeleteLog, addBlock }) {
   const [tab, setTab] = useState("today"); // today | history | log | notes
   const t = today();
   const nextWorkout = useMemo(() => {
@@ -4839,7 +4842,7 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
         <div className="max-w-[680px] mx-auto px-5 py-6">
           {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")} onLog={onLog} onDeleteLog={onDeleteLog}/>}
           {tab === "history" && <ClientHistoryTab past={past} exercises={exercises} logs={logs} unitPref={unitPref}/>}
-          {tab === "log" && <ClientLogTab client={client} exercises={exercises} logs={logs} unitPref={unitPref} onCreateSelfDirected={onCreateSelfDirected} onLog={onLog}/>}
+          {tab === "log" && <ClientLogTab client={client} exercises={exercises} logs={logs} unitPref={unitPref} onCreateSelfDirected={onCreateSelfDirected} onLog={onLog} onDeleteLog={onDeleteLog} addBlock={addBlock}/>}
           {tab === "notes" && <ClientNotesTab client={client}/>}
         </div>
       </div>
@@ -5150,60 +5153,69 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
   );
 }
 
-function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDirected, onLog }) {
-  // GATED FOR CUTOVER: ad-hoc independent ("solo") logging is temporarily
-  // unavailable. Its session lifecycle predates the Supabase/per-set schema
-  // — it logs against an un-persisted, non-UUID session id with no block_id,
-  // so it cannot write valid logs — and is being rebuilt as the lead
-  // post-cutover self-logging feature. This early return prevents invalid
-  // writes; delete it (and restore the flow below) at rebuild time.
-  return (
-    <div>
-      <div className="mb-6">
-        <div className="mono text-[10px] uppercase tracking-[0.2em]" style={{color:"var(--muted)"}}>— Log solo</div>
-        <h1 className="display text-3xl font-light tracking-tight mt-1">Independent session</h1>
-      </div>
-      <div className="card p-6 text-center">
-        <div className="mono text-[11px] uppercase tracking-wider mb-2" style={{color:"var(--muted)"}}>Coming soon</div>
-        <div className="text-sm" style={{color:"var(--ink-2)"}}>
-          Independent self-logging is being rebuilt. For now, log from the client's assigned program.
-        </div>
-      </div>
-    </div>
-  );
-
-  // eslint-disable-next-line no-unreachable
-  // Self-directed session: client picks exercises, logs sets, saves
-  const [session, setSession] = useState(null); // { id, blocks: [{exId, sets}] }
+function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDirected, onLog, onDeleteLog, addBlock }) {
+  // Persist-first solo session:
+  //  PLAN — build a block list locally (nothing is saved yet)
+  //  LOG  — the workout + blocks are persisted with real ids, then logged against.
+  // Adding an exercise mid-session inserts a single block (addBlock), so it never
+  // disturbs the sets already logged.
+  const [phase, setPhase] = useState("plan"); // "plan" | "log"
   const [name, setName] = useState("");
-  const [pickingExercise, setPickingExercise] = useState(false);
+  const [planBlocks, setPlanBlocks] = useState([]);
+  const [workout, setWorkout] = useState(null);
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const startSession = () => {
-    const n = name.trim() || `Solo — ${new Date().toLocaleDateString(undefined, { month:'short', day:'numeric' })}`;
-    setSession({ id: uid("w"), name: n, date: today(), blocks: [] });
-    setName(n);
+  const defaultName = () => `Solo — ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+
+  const blockFromExercise = (ex) => ({
+    exId: ex.id,
+    sets: ex.defSets ?? 3,
+    reps: ex.defReps ?? null,
+    rest: ex.defRest ?? null,
+    weight: null,
+    unit: unitPref,
+    notes: null,
+    side: ex.defSide ?? "bilateral",
+    work_type: ex.defWorkType ?? "reps",
+    durationSeconds: ex.defDurationSeconds ?? null,
+    distance: ex.defDistance ?? null,
+    distanceUnit: ex.defDistanceUnit ?? "m",
+    groupId: null,
+    groupPosition: null,
+  });
+
+  const reset = () => { setPhase("plan"); setName(""); setPlanBlocks([]); setWorkout(null); setPicking(false); };
+
+  const startLogging = async () => {
+    if (planBlocks.length === 0 || busy) return;
+    setBusy(true);
+    try {
+      const created = await onCreateSelfDirected({
+        name: name.trim() || defaultName(),
+        date: today(),
+        blocks: planBlocks,
+      });
+      if (created && created.id) { setWorkout(created); setPhase("log"); }
+    } finally { setBusy(false); }
   };
 
-  const addExerciseToSession = (ex) => {
-    setSession({...session, blocks: [...session.blocks, { exId: ex.id, sets: ex.defSets, reps: ex.defReps, rest: ex.defRest, notes: "", unit: "lb" }]});
-    setPickingExercise(false);
+  const addLogExercise = async (ex) => {
+    setPicking(false);
+    if (busy) return;
+    setBusy(true);
+    try {
+      const hydrated = await addBlock(workout.id, blockFromExercise(ex));
+      setWorkout(prev => ({ ...prev, blocks: [...prev.blocks, hydrated] }));
+    } catch (err) {
+      console.error("addBlock failed", err);
+      alert("Failed to add exercise: " + err.message);
+    } finally { setBusy(false); }
   };
 
-  const finalize = () => {
-    if (!session || session.blocks.length === 0) return;
-    const workoutId = onCreateSelfDirected({
-      id: session.id,
-      name: session.name,
-      date: session.date,
-      blocks: session.blocks,
-    });
-    setSession(null);
-    setName("");
-  };
-
-  if (!session) {
-    // Start screen
-    const soloSessions = logs.filter(l => l.source === "client").length;
+  // ---- PLAN phase ----
+  if (phase === "plan") {
+    const soloCount = logs.filter(l => l.source === "client").length;
     return (
       <div>
         <div className="mb-6">
@@ -5214,293 +5226,96 @@ function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDi
           </div>
         </div>
 
-        <div className="card p-5">
+        <div className="card p-5 mb-4">
           <label className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Session name (optional)</label>
           <input value={name} onChange={e => setName(e.target.value)} className="field mt-1.5" placeholder="e.g. Morning cardio, Hotel gym"/>
-          <button onClick={startSession} className="btn btn-accent w-full mt-4 justify-center">
-            <Plus size={14}/> Start session
-          </button>
         </div>
 
-        {soloSessions > 0 && (
+        {planBlocks.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {planBlocks.map((b, i) => {
+              const ex = exercises.find(e => e.id === b.exId);
+              return (
+                <div key={`p-${b.exId}-${i}`} className="card px-4 py-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-[14px] truncate">{ex ? ex.name : "Exercise"}</div>
+                    <div className="mono text-[10px] uppercase tracking-wide" style={{color:"var(--muted)"}}>
+                      {b.sets ?? "—"} sets{b.work_type === "reps" && b.reps ? ` · ${b.reps} reps` : ""}
+                    </div>
+                  </div>
+                  <button onClick={() => setPlanBlocks(prev => prev.filter((_, idx) => idx !== i))}
+                    className="btn btn-ghost btn-sm" aria-label="Remove exercise"><X size={14}/></button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button onClick={() => setPicking(true)} className="btn btn-ghost w-full justify-center py-3 mb-4" style={{borderStyle:"dashed"}}>
+          <Plus size={14}/> Add exercise
+        </button>
+
+        <button onClick={startLogging} disabled={planBlocks.length === 0 || busy}
+          style={(planBlocks.length === 0 || busy) ? {opacity:0.45, cursor:"not-allowed"} : {}}
+          className="btn btn-accent w-full justify-center">
+          <Check size={14}/> {busy ? "Starting…" : "Start logging"}
+        </button>
+
+        {soloCount > 0 && (
           <div className="mt-5 text-center">
             <div className="mono text-[10px] uppercase tracking-wider" style={{color:"var(--muted)"}}>
-              {soloSessions} solo {soloSessions === 1 ? "exercise" : "exercises"} logged all-time
+              {soloCount} solo {soloCount === 1 ? "set" : "sets"} logged all-time
             </div>
           </div>
+        )}
+
+        {picking && (
+          <ClientExercisePicker exercises={exercises} client={client}
+            onClose={() => setPicking(false)}
+            onPick={(ex) => { setPlanBlocks(prev => [...prev, blockFromExercise(ex)]); setPicking(false); }}/>
         )}
       </div>
     );
   }
 
+  // ---- LOG phase ----
+  const wLogs = logs.filter(l => l.workoutId === workout.id);
   return (
     <div>
       <div className="mb-5">
         <div className="mono text-[10px] uppercase tracking-[0.2em]" style={{color:"var(--accent)"}}>— In progress</div>
-        <input
-          value={name} onChange={e => { setName(e.target.value); setSession({...session, name: e.target.value}); }}
-          className="display text-3xl font-light tracking-tight w-full mt-1"
-          style={{background:"transparent", border:"none"}}
-          placeholder="Name this session"
-        />
+        <h1 className="display text-3xl font-light tracking-tight mt-1">{workout.name}</h1>
         <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
-          {session.blocks.length} {session.blocks.length === 1 ? "exercise" : "exercises"}
+          {workout.blocks.length} {workout.blocks.length === 1 ? "exercise" : "exercises"} · {wLogs.length} logged
         </div>
       </div>
 
-      <div className="space-y-3 mb-4">
-        {groupRenderItems(session.blocks).map((item, idx) => {
-          if (item.type === 'group') {
-            const [b1, b2] = item.blocks;
-            const ex1 = exercises.find(e => e.id === b1.exId);
-            const ex2 = exercises.find(e => e.id === b2.exId);
-            const log1 = logs.find(l => l.workoutId === session.id && l.exId === b1.exId);
-            const log2 = logs.find(l => l.workoutId === session.id && l.exId === b2.exId);
-            const removePartner = (target) => {
-              let next = session.blocks.filter(b => b !== target);
-              if (target.groupId) {
-                next = next.map(b => b.groupId === target.groupId
-                  ? { ...b, groupId: null, groupPosition: null }
-                  : b);
-              }
-              setSession({...session, blocks: next});
-            };
-            const bothDone = !!log1 && !!log2;
-            return (
-              <div key={`g-${b1.groupId}`} className="rounded-2xl p-3"
-                style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
-                <div className="flex items-center justify-between px-1 pb-2">
-                  <SupersetChip/>
-                  {bothDone && (
-                    <span className="mono text-[10px] uppercase tracking-wider flex items-center gap-1" style={{color:"var(--good)"}}>
-                      <Check size={11} strokeWidth={3}/> Both done
-                    </span>
-                  )}
-                </div>
-                <div className="grid md:grid-cols-2 gap-2">
-                  <SelfLogBlock block={b1} ex={ex1} sessionId={session.id}
-                    onRemove={() => removePartner(b1)}
-                    onLog={(data) => onLog({...data, workoutId: session.id, exId: b1.exId, date: session.date})}
-                    blockLog={log1}/>
-                  <SelfLogBlock block={b2} ex={ex2} sessionId={session.id}
-                    onRemove={() => removePartner(b2)}
-                    onLog={(data) => onLog({...data, workoutId: session.id, exId: b2.exId, date: session.date})}
-                    blockLog={log2}/>
-                </div>
-              </div>
-            );
-          }
-          const b = item.block;
-          const i = session.blocks.indexOf(b);
+      <div className="space-y-2 mb-4">
+        {workout.blocks.map((b, idx) => {
           const ex = exercises.find(e => e.id === b.exId);
-          return <SelfLogBlock key={`b-${b.exId}-${idx}`} block={b} ex={ex} sessionId={session.id}
-            onRemove={() => setSession({...session, blocks: session.blocks.filter((_,sidx) => sidx !== i)})}
-            onLog={(data) => onLog({...data, workoutId: session.id, exId: b.exId, date: session.date})}
-            blockLog={logs.find(l => l.workoutId === session.id && l.exId === b.exId)}
-          />;
+          const blockLog = wLogs.find(l => l.blockId === b._id);
+          return (
+            <ExerciseBlock key={`b-${b._id ?? b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
+              onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b._id, exId: b.exId, date: workout.date})}
+              onDeleteLog={onDeleteLog}/>
+          );
         })}
       </div>
 
-      <button onClick={() => setPickingExercise(true)} className="btn btn-ghost w-full justify-center py-3 mb-4" style={{borderStyle:"dashed"}}>
+      <button onClick={() => setPicking(true)} disabled={busy}
+        className="btn btn-ghost w-full justify-center py-3 mb-4" style={{borderStyle:"dashed", ...(busy ? {opacity:0.5} : {})}}>
         <Plus size={14}/> Add exercise
       </button>
 
       <div className="sticky bottom-0 py-3" style={{background:"linear-gradient(transparent, var(--paper) 25%)"}}>
-        <div className="flex items-center gap-2">
-          <button onClick={() => { if (confirm("Discard this session?")) setSession(null); }} className="btn btn-ghost">Discard</button>
-          <button onClick={finalize} disabled={session.blocks.length === 0}
-            style={session.blocks.length === 0 ? {opacity:0.45, cursor:"not-allowed"} : {}}
-            className="btn btn-primary flex-1 justify-center"><Check size={14}/> Finish session</button>
-        </div>
+        <button onClick={reset} className="btn btn-primary w-full justify-center"><Check size={14}/> Finish session</button>
       </div>
 
-      {pickingExercise && (
+      {picking && (
         <ClientExercisePicker exercises={exercises} client={client}
-          onClose={() => setPickingExercise(false)}
-          onPick={addExerciseToSession}/>
+          onClose={() => setPicking(false)}
+          onPick={addLogExercise}/>
       )}
-    </div>
-  );
-}
-
-function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
-  if (!ex) return null;
-
-  // Already logged — show summary
-  if (blockLog) {
-    const unit = blockLog.unit || block.unit || "lb";
-    const actualW = blockLog.actualWeight != null ? toDisplay(blockLog.actualWeight, unit) : null;
-    const workType = block.work_type || "reps";
-    const isTime = workType === "time";
-    return (
-      <div className="card p-4 grow-in" style={{borderColor: "var(--good)"}}>
-        <div className="flex items-start gap-3">
-          <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{background:"var(--good)"}}>
-            <Check size={14} style={{color:"#fff"}} strokeWidth={3}/>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-[14px]">{ex.name}</span>
-              <SideChip side={block.side}/>
-              <WorkTypeChip workType={workType}/>
-              {blockLog.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
-            </div>
-            <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
-              {blockLog.mode === "modified" && blockLog.perSet ? (
-                blockLog.perSet.map(s => isTime
-                  ? `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.actualSeconds ?? s.duration ?? "—"}s`
-                  : `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`
-                ).join(" · ")
-              ) : isTime ? (
-                `${blockLog.actualSets ?? block.sets} × ${blockLog.actualReps ?? (block.durationSeconds ?? "—")}s hold${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-              ) : (
-                `${blockLog.actualSets ?? block.sets} × ${blockLog.actualReps ?? block.reps}${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-              )}
-            </div>
-            {blockLog.notes && <div className="text-[12px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{blockLog.notes}</div>}
-          </div>
-          <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={13}/></button>
-        </div>
-      </div>
-    );
-  }
-
-  // Not logged — show the LogCard pattern
-  return <ClientLogCard block={block} ex={ex} onLog={onLog} onRemove={onRemove}/>;
-}
-
-function ClientLogCard({ block, ex, onLog, onRemove }) {
-  const unit = block.unit || "lb";
-  const workType = block.work_type || "reps";
-  const isTime = workType === "time";
-  const [actualSets, setActualSets] = useState(block.sets);
-  const [actualReps, setActualReps] = useState(block.reps);
-  const [actualSeconds, setActualSeconds] = useState(block.durationSeconds ?? "");
-  const [actualWeight, setActualWeight] = useState("");
-  const [modified, setModified] = useState(false);
-  const [perSet, setPerSet] = useState([]);
-  const [notes, setNotes] = useState("");
-
-  const toggleModified = () => {
-    if (!modified) {
-      const rows = [];
-      const nSets = Number(block.sets) || 1;
-      for (let i = 0; i < nSets; i++) {
-        const row = isTime
-          ? { duration: block.durationSeconds, actualSeconds: "", weight: "" }
-          : { reps: block.reps, weight: "" };
-        rows.push(row);
-      }
-      setPerSet(rows);
-    }
-    setModified(!modified);
-  };
-  const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const addRow = () => {
-    const row = isTime
-      ? { duration: block.durationSeconds, actualSeconds: "", weight: "" }
-      : { reps: block.reps, weight: "" };
-    setPerSet([...perSet, row]);
-  };
-  const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
-
-  const markDone = () => {
-    if (modified) {
-      onLog({
-        completed: true, mode: "modified",
-        actualSets: perSet.length, actualReps: null, actualWeight: null,
-        perSet: perSet.map(s => (
-          isTime
-            ? { actualSeconds: s.actualSeconds, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-            : { reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) }
-        )),
-        notes, source: "client", unit,
-      });
-    } else {
-      onLog({
-        completed: true, mode: "asPlanned",
-        actualSets: Number(actualSets) || block.sets,
-        actualReps: isTime ? (actualSeconds === "" ? null : actualSeconds) : actualReps,
-        actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
-        perSet: null, notes, source: "client", unit,
-      });
-    }
-  };
-
-  return (
-    <div className="card p-4">
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-start gap-2.5">
-          <span className={`dot mt-1.5 ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[14px] font-medium">{ex.name}</span>
-              <SideChip side={block.side}/>
-              <WorkTypeChip workType={workType}/>
-            </div>
-            <div className="mono text-[10px] uppercase tracking-wider mt-0.5" style={{color:"var(--muted)"}}>
-              {isTime ? `target ${block.sets}×${block.durationSeconds ?? "—"}s hold` : `target ${block.sets}×${block.reps}`}
-            </div>
-          </div>
-        </div>
-        <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={13}/></button>
-      </div>
-
-      {!modified ? (
-        <div className="grid grid-cols-3 gap-2 mt-3 mb-3">
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Sets</label>
-            <input type="text" inputMode="numeric" value={actualSets} onChange={e => setActualSets(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-          {isTime ? (
-            <div>
-              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Duration (s)</label>
-              <input type="text" inputMode="numeric" value={actualSeconds} onChange={e => setActualSeconds(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-            </div>
-          ) : (
-            <div>
-              <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
-              <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-            </div>
-          )}
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Weight ({unitLabel(unit)})</label>
-            <input type="text" inputMode="decimal" value={actualWeight} onChange={e => setActualWeight(filterNumericInput(e.target.value))} placeholder="—" className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-1.5 mt-3 mb-3">
-          {perSet.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-              {isTime ? (
-                <input type="text" inputMode="numeric" value={s.actualSeconds} onChange={e => updatePerSet(i, {actualSeconds: filterNumericInput(e.target.value, true)})} placeholder="secs"
-                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              ) : (
-                <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                  className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              )}
-              <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={unitLabel(unit)}
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
-            </div>
-          ))}
-          <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 mb-3">
-        <label className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{color:"var(--ink-2)"}}>
-          <input type="checkbox" checked={modified} onChange={toggleModified}/>
-          Modified
-        </label>
-        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes"
-          className="field" style={{padding:"6px 10px", fontSize:"12px", flex:1}}/>
-      </div>
-
-      <button onClick={markDone} className="btn btn-accent w-full justify-center">
-        <Check size={14}/> Mark done
-      </button>
     </div>
   );
 }
