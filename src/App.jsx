@@ -2305,6 +2305,8 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
   const isInProgress = !isCompleted && workoutLogs.length > 0;
   const isReady = !isCompleted && !isInProgress;
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmComplete, setConfirmComplete] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
   return (
     <div className="card">
       <button onClick={onToggle} className="w-full flex items-center gap-4 p-4 text-left">
@@ -2331,22 +2333,27 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
           <div className="flex items-center gap-2 mb-4">
             <span className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Attendance</span>
             {["present","missed","cancelled"].map(s => (
-              <button key={s} onClick={() => onAttendance({ workoutId: workout.id, status: s, date: workout.date })}
-                className="btn btn-sm" style={att?.status === s
+              <button key={s} disabled={isCompleted} onClick={() => onAttendance({ workoutId: workout.id, status: s, date: workout.date })}
+                className="btn btn-sm" style={{...(att?.status === s
                   ? {background:"var(--ink)", color:"var(--paper)", borderColor:"var(--ink)"}
-                  : {background:"#fff", border:"1px solid var(--line)"}}>
+                  : {background:"#fff", border:"1px solid var(--line)"}), ...(isCompleted ? {opacity:0.5, cursor:"not-allowed"} : {})}}>
                 {s}
               </button>
             ))}
             <div className="flex-1"/>
-            <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>
+            {!isCompleted && <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>}
             {isReady && onDeleteWorkout && (
               <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost btn-sm" style={{color:"var(--danger)"}}>
                 <Trash2 size={12}/> Delete
               </button>
             )}
           </div>
-          <div className="space-y-2">
+          {isCompleted && (
+            <div className="mb-3 text-[11px] mono uppercase tracking-wider" style={{color:"var(--muted)"}}>
+              Locked — tap "Mark as in progress" below to edit
+            </div>
+          )}
+          <div className="space-y-2" style={isCompleted ? {pointerEvents:"none", opacity:0.6} : undefined}>
             {groupRenderItems(workout.blocks).map((item, idx) => {
               if (item.type === 'group') {
                 const [b1, b2] = item.blocks;
@@ -2393,22 +2400,40 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
               <button
                 className="text-xs underline"
                 style={{color:"var(--muted)"}}
-                onClick={async () => { await onUncompleteWorkout(workout.id); }}>
+                onClick={() => setConfirmReopen(true)}>
                 Mark as in progress
               </button>
             </div>
           ) : (
             <button
               className="btn btn-primary w-full mt-4"
-              onClick={async () => {
-                if (window.confirm("Mark this session complete?")) {
-                  await onCompleteWorkout(workout.id);
-                }
-              }}>
+              onClick={() => setConfirmComplete(true)}>
               <Check size={14}/> Complete session
             </button>
           )}
         </div>
+      )}
+      {confirmReopen && (
+        <Modal onClose={() => setConfirmReopen(false)} title="Reopen this session?">
+          <p className="text-sm" style={{color:"var(--ink-2)"}}>
+            This unlocks attendance and the logged sets for <b>{prettyDate(workout.date)}</b> so you can edit them again.
+          </p>
+          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
+            <button onClick={() => setConfirmReopen(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={async () => { setConfirmReopen(false); await onUncompleteWorkout(workout.id); }} className="btn btn-primary">Reopen</button>
+          </div>
+        </Modal>
+      )}
+      {confirmComplete && (
+        <Modal onClose={() => setConfirmComplete(false)} title="Complete this session?">
+          <p className="text-sm" style={{color:"var(--ink-2)"}}>
+            Completing locks attendance and the logged sets for <b>{prettyDate(workout.date)}</b>. You can reopen it later with <b>Mark as in progress</b>.
+          </p>
+          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
+            <button onClick={() => setConfirmComplete(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={async () => { setConfirmComplete(false); await onCompleteWorkout(workout.id); }} className="btn btn-primary"><Check size={14}/> Complete</button>
+          </div>
+        </Modal>
       )}
       {confirmDelete && (
         <Modal onClose={() => setConfirmDelete(false)} title="Delete this workout?">
