@@ -2081,7 +2081,7 @@ function ClientDetail({ client, tab: tabProp, onTabChange, workouts, exercises, 
             </button>
           </div>
         )}
-        <ClientHeader client={client} unitPref={unitPref}/>
+        <ClientHeader client={client} unitPref={unitPref} completedCount={clientWorkouts.filter(w => w.completedAt).length}/>
         <div className="flex items-center gap-5 mb-6 mt-6" style={{borderBottom:"1px solid var(--line)"}}>
           {[
             ["program","Program"],
@@ -2122,7 +2122,7 @@ function ClientDetail({ client, tab: tabProp, onTabChange, workouts, exercises, 
   );
 }
 
-function ClientHeader({ client, unitPref = "lb" }) {
+function ClientHeader({ client, unitPref = "lb", completedCount = 0 }) {
   const flags = client.injuries || [];
   const { measurements } = useMeasurements(client.id);
   const latestBW = useMemo(() => {
@@ -2143,6 +2143,7 @@ function ClientHeader({ client, unitPref = "lb" }) {
           <span className="chip">{client.level}</span>
           {client.age && <span className="chip">age {client.age}</span>}
           {latestBW && <span className="chip tabular">{toDisplay(latestBW.valueLb, unitPref)}{unitLabel(unitPref)}</span>}
+          {completedCount > 0 && <span className="chip tabular">{completedCount} completed</span>}
           {flags.map((f,i) => <span key={i} className="chip chip-warn"><AlertTriangle size={11}/> {f}</span>)}
         </div>
         <div className="mt-4 text-sm max-w-[580px]" style={{color:"var(--ink-2)"}}>
@@ -4906,7 +4907,7 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[680px] mx-auto px-5 py-6">
-          {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")} onLog={onLog} onDeleteLog={onDeleteLog}/>}
+          {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")} onLog={onLog} onDeleteLog={onDeleteLog} completedCount={workouts.filter(w => w.completedAt).length}/>}
           {tab === "history" && <ClientHistoryTab past={past} exercises={exercises} logs={logs} unitPref={unitPref}/>}
           {tab === "log" && <ClientLogTab client={client} exercises={exercises} logs={logs} unitPref={unitPref} onCreateSelfDirected={onCreateSelfDirected} onLog={onLog} onDeleteLog={onDeleteLog} addBlock={addBlock}/>}
           {tab === "notes" && <ClientNotesTab client={client}/>}
@@ -4937,7 +4938,7 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
   );
 }
 
-function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref = "lb", onGoLog, onLog, onDeleteLog }) {
+function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref = "lb", onGoLog, onLog, onDeleteLog, completedCount = 0 }) {
   const greeting = (() => {
     const h = new Date().getHours();
     if (h < 12) return "Good morning";
@@ -4953,6 +4954,11 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
         <div className="display text-base italic mt-1" style={{color:"var(--ink-2)"}}>
           {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
         </div>
+        {completedCount > 0 && (
+          <div className="mono text-[10px] uppercase tracking-widest mt-2" style={{color:"var(--muted)"}}>
+            {completedCount} {completedCount === 1 ? "session" : "sessions"} completed
+          </div>
+        )}
       </div>
 
       {nextWorkout ? (
