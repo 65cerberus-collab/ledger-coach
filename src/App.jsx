@@ -2306,6 +2306,7 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
   const isReady = !isCompleted && !isInProgress;
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmComplete, setConfirmComplete] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
   return (
     <div className="card">
       <button onClick={onToggle} className="w-full flex items-center gap-4 p-4 text-left">
@@ -2340,7 +2341,7 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
               </button>
             ))}
             <div className="flex-1"/>
-            <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>
+            {!isCompleted && <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>}
             {isReady && onDeleteWorkout && (
               <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost btn-sm" style={{color:"var(--danger)"}}>
                 <Trash2 size={12}/> Delete
@@ -2399,7 +2400,7 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
               <button
                 className="text-xs underline"
                 style={{color:"var(--muted)"}}
-                onClick={async () => { await onUncompleteWorkout(workout.id); }}>
+                onClick={() => setConfirmReopen(true)}>
                 Mark as in progress
               </button>
             </div>
@@ -2411,6 +2412,17 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
             </button>
           )}
         </div>
+      )}
+      {confirmReopen && (
+        <Modal onClose={() => setConfirmReopen(false)} title="Reopen this session?">
+          <p className="text-sm" style={{color:"var(--ink-2)"}}>
+            This unlocks attendance and the logged sets for <b>{prettyDate(workout.date)}</b> so you can edit them again.
+          </p>
+          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
+            <button onClick={() => setConfirmReopen(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={async () => { setConfirmReopen(false); await onUncompleteWorkout(workout.id); }} className="btn btn-primary">Reopen</button>
+          </div>
+        </Modal>
       )}
       {confirmComplete && (
         <Modal onClose={() => setConfirmComplete(false)} title="Complete this session?">
