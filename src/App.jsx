@@ -1367,42 +1367,48 @@ Open Templates from the sidebar. Tap a template to open it in the builder. Save 
     id: "logging",
     title: "Logging sessions",
     audience: ["coach", "client"],
-    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit","hold","duration","time"],
-    body: `## The single-entry-per-exercise model
+    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit","hold","duration","time","as prescribed","complete","reopen","lock","distance","unilateral","side"],
+    body: `## How logging works
 
-Ledger uses **one log per exercise**, not one log per set. Most of the time, all sets of an exercise are the same — same weight, same reps. Logging a single entry covers the whole exercise.
+Ledger logs **every set**, not one entry per exercise. Each exercise on a session shows a log card with its prescription — sets, reps (or hold time, or distance), weight, rest — and two buttons: **As prescribed** and **Modified**.
 
-When sets diverge — different weights, dropped reps, an injury mid-set — check the **Modified** box on the log card. The card expands to show one row per set, each editable individually.
+You can add a note (form, RPE, pain — anything worth remembering) in the field on the card before logging. It's saved with the entry either way.
 
-This keeps logging fast for the common case while still letting you record exactly what happened when it matters.
+## As prescribed — the fast path
 
-## Attendance
+If the client hit the prescription, tap **As prescribed**. One tap logs every set exactly as written and the card flips to a green summary. This is the common case, and it's meant to be instant.
 
-Each scheduled workout has three states:
+## Modified — per-set entry
 
-- **Present** — client showed up
-- **Missed** — client didn't show
-- **Cancelled** — session was cancelled (different from missed)
+If anything diverged — a heavier top set, dropped reps, an injury mid-set — tap **Modified**. The card expands to one row per prescribed set, each with its own value and weight. Adjust any row, tap **+ Add set** to add one, or the small **×** on a row to drop it, then tap **Save modified**. Modified logs carry a **Modified** chip on their summary.
 
-Attendance is separate from logging. You can mark a session present without logging exercises (useful for technique-only sessions).
+The value field matches the exercise's type automatically:
 
-## Logging "as planned"
+- **Reps** exercises ask for reps
+- **Hold** (time) exercises ask for seconds
+- **Distance** exercises ask for the distance, in the unit the exercise uses
 
-If the client did the workout exactly as written, just tap **Mark done** on each block. Fill in actual sets / reps / weight if anything differed.
-
-## Logging time-based (Hold) work
-
-For blocks set to **Time** in the builder, the log card swaps **Reps** for **Duration (s)** — the flow is otherwise identical. Enter the seconds actually held, confirm sets and weight if needed, and tap **Mark done**. Completed time-based logs show their summary with the planned duration and the **Hold** chip.
-
-Holds without weight still record their time — useful for tracking plank duration, dead hang time, or breathing exercises without inventing a load.
-
-## Logging "Modified"
-
-Tap **Modified** to expand to per-set entry. Each set has its own reps and weight inputs. Add or remove rows as needed.
+For **unilateral** exercises, each set splits into separate **L** and **R** rows, so you can record the two sides independently.
 
 ## Editing or undoing a log
 
-A logged exercise shows as a green card. Tap the **×** to undo the log entirely. To edit details, undo first, then re-log.`
+A logged exercise shows as a green summary card with an **×** in the corner. Tap the **×** to undo the log. To change what was recorded, undo it and log again — the card returns to its **As prescribed** / **Modified** state.
+
+## Attendance
+
+Attendance is tracked separately from logging, with three states:
+
+- **Present** — the client showed up
+- **Missed** — the client didn't show
+- **Cancelled** — the session was called off (distinct from a no-show)
+
+You can mark attendance without logging a single set — handy for technique-only or check-in sessions. Once a session is **completed**, the attendance buttons lock (see below).
+
+## Completing & reopening a session
+
+When a session is done, tap **Complete session** at the bottom. Ledger asks you to confirm, then **locks the session**: attendance and every logged set are frozen, the logged cards dim, and the **Edit** button disappears. This keeps finished sessions from being changed by accident.
+
+To make changes again, tap **Mark as in progress** at the bottom of a completed session and confirm. Attendance and the logged sets unlock, and you can edit as normal.`
   },
 
   {
