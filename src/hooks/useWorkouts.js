@@ -269,7 +269,20 @@ export function useWorkouts(coachId) {
       }
     }
 
-    const updated = { ...camelWorkout, id, coachId: coachId };
+    // Re-read the workout so its blocks carry their real database ids after the
+    // delete-and-reinsert above (block ids are generated server-side). Without
+    // this, logging against a freshly edited or newly added block in the same
+    // session writes a stale or null block_id.
+    const { data: updatedRow, error: refetchError } = await supabase
+      .from('workouts')
+      .select(WORKOUT_SELECT)
+      .eq('id', id)
+      .single();
+    if (refetchError) {
+      throw new Error(`Workout updated but could not be re-read: ${refetchError.message}`);
+    }
+
+    const updated = fromRow(updatedRow);
     setWorkouts(prev => prev.map(w => w.id === id ? updated : w));
     return updated;
   };
