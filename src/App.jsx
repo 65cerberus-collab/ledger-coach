@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
-  Search, Plus, X, Users, Dumbbell, Calendar, ChevronRight, ChevronLeft,
-  Check, Circle, AlertTriangle, Filter, Trash2, GripVertical, Edit3,
-  Activity, Target, LayoutGrid, BookOpen, Clock, ArrowUpRight,
-  MoreHorizontal, Copy, FileText, TrendingUp, ArrowRight, Minus,
+  Search, Plus, X, ChevronRight, ChevronLeft,
+  Check, AlertTriangle, Filter, Trash2, Edit3,
+  Activity, LayoutGrid, BookOpen, Clock, ArrowUpRight,
+  MoreHorizontal, Copy, FileText, ArrowRight,
   Archive, ArchiveRestore, HelpCircle, LogOut
 } from "lucide-react";
 import { load, save, SCHEMA_VERSION } from "./storageService";
@@ -212,14 +212,6 @@ const addDays = (d, n) => {
   const da = String(x.getDate()).padStart(2, "0");
   return `${y}-${mo}-${da}`;
 };
-
-const SEED_CLIENTS = [
-  { id: uid("c"), coachId: "coach_alex", name: "Maya Okafor", age: 34, goals: "Build strength, run 10K under 52min", injuries: [], equipment: ["barbell","dumbbell","kettlebell","machine"], level: "intermediate", notes: "Trains 3x/week. Prefers morning sessions." , since: "2024-08-15", bodyweight: [{date: addDays(today(),-45), lb: 141.5},{date: addDays(today(),-30), lb: 141.1},{date: addDays(today(),-15), lb: 140.2},{date: today(), lb: 139.8}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Daniel Kaur", age: 47, goals: "Maintain mobility, reduce back stiffness", injuries: ["low back injury"], equipment: ["dumbbell","bodyweight"], level: "beginner", notes: "Desk job. Avoid heavy spinal loading.", since: "2025-01-10", bodyweight: [{date: addDays(today(),-30), lb: 181.0},{date: today(), lb: 179.5}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Serafina Liu", age: 29, goals: "Prenatal strength — 2nd trimester", injuries: [], equipment: ["dumbbell","bodyweight","band"], level: "intermediate", notes: "Focus on pelvic floor and posterior chain. No supine after week 16.", since: "2024-11-02", bodyweight: [{date: today(), lb: 129.6}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Jonah Reeves", age: 22, goals: "Add 8kg of muscle, first powerlifting meet", injuries: [], equipment: ["barbell","dumbbell","rack","bench","machine"], level: "advanced", notes: "Aggressive training volume. Loves heavy.", since: "2024-06-01", bodyweight: [{date: addDays(today(),-60), lb: 168.7},{date: addDays(today(),-30), lb: 172.2},{date: today(), lb: 175.1}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Priya Shah", age: 38, goals: "Rebuild after shoulder surgery", injuries: ["shoulder injury"], equipment: ["dumbbell","band","bodyweight"], level: "beginner", notes: "Cleared for light pressing. No overhead yet.", since: "2025-03-20", bodyweight: [{date: today(), lb: 134.5}] },
-];
 
 /* ============================================================
    HELPERS
@@ -2072,8 +2064,6 @@ function TodaySessionCard({ workout, clients, logs, attendance, onOpen }) {
     </button>
   );
 }
-
-function RecentActivity() { return null; } // deprecated — kept as empty stub to avoid stale references
 
 /* ============================================================
    CLIENT DETAIL
