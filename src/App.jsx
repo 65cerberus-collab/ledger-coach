@@ -1452,23 +1452,35 @@ Bodyweight appears in both the Progress tab (as the bodyweight chart) and the Me
     id: "client-view",
     title: "Client-facing view",
     audience: ["coach", "client"],
-    keywords: ["client view","today","history","log solo","notes","self-directed"],
-    body: `Coaches can switch into a client-facing view to see what the client sees, or to hand the iPad to a client mid-session.
+    keywords: ["client view","today","history","log solo","notes","self-directed","view as client","coach preview","exit preview","client logs this session","coach-logged","client-logged","independent session","start logging","finish session","add exercise"],
+    body: `Ledger has a client-facing view — the four tabs a client uses day to day. For now it's a **coach preview**: you open it from a client's profile to see exactly what they'd see. (Client logins arrive in a later phase; until then, this is your window into the experience you're building.)
 
-## Switching to client view
+## Opening the client view
 
-From a client's profile, tap **View as client** in the Profile tab. To exit, tap the back arrow.
+From a client's profile, tap **View as client** (in the "See what … sees" card near the bottom). A **Coach preview** banner sits across the top so you always know you're previewing. Tap **Exit preview** to return.
 
 ## The four client tabs
 
-- **Today** — the workout scheduled for today, ready to log
-- **History** — past sessions with expandable detail
-- **Log solo** — start a self-directed workout (no scheduled plan; client picks exercises and logs as they go)
-- **Notes** — free-form notes the client can read or add to
+- **Today** — the next scheduled workout, ready to log or preview
+- **History** — past sessions, each expandable for detail
+- **Log Solo** — start an independent workout that isn't on the plan
+- **Notes** — free-form notes the client can read and add to
 
-## Self-directed sessions
+## Today: who logs the session
 
-If a client wants to do a workout that wasn't planned, **Log solo** lets them build one on the fly. Pick exercises from the library, set sets/reps/weight as you go, and log normally. The session appears in history flagged as self-directed.`
+Each workout you build is one of two kinds, controlled by the **Client logs this session** checkbox in the builder:
+
+- **Coach-logged** (default, checkbox off) — the client's Today shows the workout as a read-only preview, with a note that you'll log their sets live during the session.
+- **Client-logged** (checkbox on) — the client's Today shows live log cards, and the client logs their own sets using the same **As prescribed** / **Modified** cards, right on the Today tab.
+
+## Log Solo: independent sessions
+
+**Log Solo** is for a workout the client does on their own, outside your plan. It works in two steps:
+
+1. **Plan** — give the session an optional name, then tap **Add exercise** to build a list from the library. Nothing is saved yet; remove any exercise with the **×**.
+2. **Start logging** — this creates the session and switches to logging. Log each exercise with the usual cards. Need something you didn't plan? **Add exercise** mid-session adds it without touching what's already logged. Tap **Finish session** when you're done.
+
+Solo sessions are saved to the client's history flagged as a **Solo** session.`
   },
 
   {
