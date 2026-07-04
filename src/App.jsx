@@ -2788,8 +2788,7 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
   }, [logs, clientWorkouts, exercises]);
   return (
     <div>
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <StatCard label="Workouts completed" value={attendedCount} />
+      <div className="grid grid-cols-2 gap-4 mb-8">
         <StatCard label="Attendance" value={attendanceRate + "%"} />
         <StatCard label="PRs · 4 wks" value={recentPRCount} />
       </div>
