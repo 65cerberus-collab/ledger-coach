@@ -1,12 +1,22 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
-  Search, Plus, X, Users, Dumbbell, Calendar, ChevronRight, ChevronLeft,
-  Check, Circle, AlertTriangle, Filter, Trash2, GripVertical, Edit3,
-  Activity, Target, LayoutGrid, BookOpen, Clock, ArrowUpRight,
-  MoreHorizontal, Copy, FileText, TrendingUp, ArrowRight, Minus,
-  Archive, ArchiveRestore, HelpCircle
+  Search, Plus, X, ChevronRight, ChevronLeft,
+  Check, AlertTriangle, Filter, Trash2, Edit3,
+  Activity, LayoutGrid, BookOpen, Clock, ArrowUpRight,
+  MoreHorizontal, Copy, FileText, ArrowRight,
+  Archive, ArchiveRestore, HelpCircle, LogOut
 } from "lucide-react";
 import { load, save, SCHEMA_VERSION } from "./storageService";
+import { supabase } from './lib/supabase.js';
+import { useSession } from './auth/useSession.js';
+import { useCoaches } from './hooks/useCoaches.js';
+import { useClients } from './hooks/useClients.js';
+import { useMeasurements } from './hooks/useMeasurements.js';
+import { useWorkouts, repsOrNull, convertToMeters, convertFromMeters } from './hooks/useWorkouts.js';
+import { useClientNotes } from './hooks/useClientNotes.js';
+import { useExercises } from './hooks/useExercises.js';
+import { useLogs } from './hooks/useLogs.js';
+import { useAttendance } from './hooks/useAttendance.js';
 
 /* ============================================================
    STYLES — injected once at mount
@@ -162,277 +172,6 @@ const fromDisplayLen = (value, unit) => {
 const lenLabel = (unit) => unit === "in" ? "in" : "cm";
 
 /* ============================================================
-   SEED DATA
-   ============================================================ */
-const E = (name, movement, muscles, equipment, difficulty, tags, contraindications, defSets, defReps, defRest, notes = "") =>
-  ({ id: uid("ex"), name, movement, muscles, equipment, difficulty, tags, contraindications, defSets, defReps, defRest, notes });
-
-const SEED_EXERCISES = [
-  // ── SQUAT ────────────────────────────────────────────────
-  E("Back Squat", "squat", ["quads","glutes"], ["barbell","rack"], "intermediate", ["compound","lower"], ["knee injury"], 4, "5", 180, "Brace, depth to parallel."),
-  E("Front Squat", "squat", ["quads","core"], ["barbell","rack"], "advanced", ["compound","lower"], ["wrist injury","knee injury"], 4, "5", 180, "Elbows up, upright torso."),
-  E("Goblet Squat", "squat", ["quads","glutes"], ["dumbbell","kettlebell"], "beginner", ["compound","lower","beginner-friendly"], [], 3, "10", 90, "Elbows inside knees."),
-  E("Box Squat", "squat", ["quads","glutes"], ["barbell","rack"], "intermediate", ["compound","lower"], [], 4, "5", 180, "Sit back to box, no collapse."),
-  E("Pause Squat", "squat", ["quads","glutes"], ["barbell","rack"], "advanced", ["compound","lower"], ["knee injury"], 4, "4", 210, "3-count pause at bottom."),
-  E("Safety Bar Squat", "squat", ["quads","glutes","upper-back"], ["safety-bar","rack"], "intermediate", ["compound","lower"], [], 4, "6", 180, "Shoulder-friendly alternative."),
-  E("Zercher Squat", "squat", ["quads","glutes","core"], ["barbell"], "advanced", ["compound","lower"], ["elbow injury"], 3, "6", 150, "Bar in crooks of elbows."),
-  E("Hack Squat (Machine)", "squat", ["quads"], ["machine"], "beginner", ["lower"], [], 3, "10", 90),
-  E("Leg Press", "squat", ["quads","glutes"], ["machine"], "beginner", ["lower","beginner-friendly"], [], 3, "12", 90),
-  E("Walking Lunge", "squat", ["quads","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], ["knee injury"], 3, "12/leg", 75),
-  E("Reverse Lunge", "squat", ["quads","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], [], 3, "10/leg", 75, "Knee-friendly lunge variant."),
-  E("Lateral Lunge", "squat", ["adductors","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], [], 3, "8/leg", 60),
-  E("Curtsy Lunge", "squat", ["glutes","adductors"], ["dumbbell","bodyweight"], "intermediate", ["unilateral","lower"], ["knee injury"], 3, "10/leg", 60),
-  E("Bulgarian Split Squat", "squat", ["quads","glutes"], ["dumbbell","bench"], "intermediate", ["unilateral","lower"], ["knee injury"], 3, "8/leg", 90),
-  E("Split Squat", "squat", ["quads","glutes"], ["dumbbell","bodyweight"], "beginner", ["unilateral","lower"], [], 3, "10/leg", 75),
-  E("Step-up", "squat", ["quads","glutes"], ["dumbbell","bench"], "beginner", ["unilateral","lower"], [], 3, "10/leg", 60),
-  E("Pistol Squat", "squat", ["quads","glutes"], ["bodyweight"], "advanced", ["unilateral","bodyweight"], ["knee injury"], 3, "5/leg", 90),
-  E("Cossack Squat", "squat", ["quads","adductors"], ["bodyweight","kettlebell"], "intermediate", ["unilateral","mobility"], [], 3, "6/side", 60),
-  E("Wall Sit", "squat", ["quads"], ["bodyweight"], "beginner", ["isometric","lower"], ["knee injury"], 3, "45s", 60),
-  E("Jump Squat", "squat", ["quads","glutes"], ["bodyweight"], "intermediate", ["power","lower"], ["knee injury"], 3, "8", 90),
-
-  // ── HINGE ────────────────────────────────────────────────
-  E("Conventional Deadlift", "hinge", ["hamstrings","glutes","back"], ["barbell"], "advanced", ["compound","posterior"], ["low back injury","disc issue"], 4, "5", 180),
-  E("Sumo Deadlift", "hinge", ["glutes","quads","back"], ["barbell"], "advanced", ["compound","posterior"], ["low back injury","hip injury"], 4, "5", 180),
-  E("Romanian Deadlift", "hinge", ["hamstrings","glutes"], ["barbell","dumbbell"], "intermediate", ["posterior","hinge"], ["low back injury"], 3, "8", 120),
-  E("Stiff-Leg Deadlift", "hinge", ["hamstrings"], ["barbell","dumbbell"], "intermediate", ["posterior"], ["low back injury"], 3, "8", 120),
-  E("Single-Leg RDL", "hinge", ["hamstrings","glutes"], ["dumbbell","kettlebell"], "intermediate", ["unilateral","posterior"], [], 3, "8/leg", 75),
-  E("Trap Bar Deadlift", "hinge", ["hamstrings","glutes","quads"], ["trap-bar"], "intermediate", ["compound","posterior","beginner-friendly"], [], 4, "6", 150, "Easier on lower back."),
-  E("Deficit Deadlift", "hinge", ["hamstrings","glutes"], ["barbell"], "advanced", ["posterior"], ["low back injury"], 3, "5", 180),
-  E("Rack Pull", "hinge", ["back","glutes"], ["barbell","rack"], "intermediate", ["posterior","accessory"], [], 3, "6", 150),
-  E("Good Morning", "hinge", ["hamstrings","low-back"], ["barbell"], "intermediate", ["posterior"], ["low back injury"], 3, "8", 120),
-  E("Back Extension", "hinge", ["hamstrings","glutes","low-back"], ["ghd"], "beginner", ["posterior","accessory"], [], 3, "12", 60),
-  E("Reverse Hyper", "hinge", ["glutes","hamstrings","low-back"], ["reverse-hyper"], "beginner", ["posterior","accessory"], [], 3, "12", 60),
-  E("Hip Thrust", "hinge", ["glutes","hamstrings"], ["barbell","bench"], "beginner", ["glute","posterior"], [], 4, "10", 90),
-  E("Barbell Glute Bridge", "hinge", ["glutes","hamstrings"], ["barbell"], "beginner", ["glute","posterior"], [], 3, "10", 75),
-  E("Single-Leg Hip Thrust", "hinge", ["glutes"], ["bench","bodyweight"], "intermediate", ["unilateral","glute"], [], 3, "10/leg", 60),
-  E("Kettlebell Swing", "hinge", ["glutes","hamstrings","back"], ["kettlebell"], "intermediate", ["power","conditioning"], ["low back injury"], 4, "15", 60),
-  E("Kettlebell Clean", "hinge", ["full body"], ["kettlebell"], "advanced", ["power","conditioning"], ["low back injury"], 4, "6/side", 90),
-  E("Nordic Curl", "hinge", ["hamstrings"], ["bodyweight"], "advanced", ["posterior","isolation"], ["hamstring injury"], 3, "6", 90, "Eccentric-only to start — lower slowly, use hands to push up."),
-  E("B-Stance RDL", "hinge", ["hamstrings","glutes"], ["dumbbell","kettlebell","barbell"], "intermediate", ["unilateral","posterior"], ["low back injury"], 3, "8/leg", 75, "Back foot kickstand, ~70% load on front leg."),
-  E("B-Stance Hip Thrust", "hinge", ["glutes"], ["barbell","bench"], "intermediate", ["unilateral","glute","posterior"], [], 3, "10/leg", 75),
-  E("Banded Lateral Walk", "hinge", ["glutes"], ["band"], "beginner", ["glute","warmup","isolation"], [], 3, "15/side", 30),
-  E("Clamshell", "hinge", ["glutes"], ["band","bodyweight"], "beginner", ["glute","warmup","prenatal-safe"], [], 3, "15/side", 30),
-  E("Hip Airplane", "hinge", ["glutes","hips"], ["bodyweight"], "intermediate", ["unilateral","stability","glute"], [], 3, "6/side", 45),
-  E("Power Clean", "hinge", ["full body"], ["barbell"], "advanced", ["power","compound","posterior"], ["low back injury","wrist injury"], 5, "3", 180, "Triple extension, catch in quarter squat."),
-  E("Hang Clean", "hinge", ["full body"], ["barbell"], "advanced", ["power","compound"], ["low back injury"], 5, "3", 180, "From mid-thigh."),
-
-  // ── PUSH: HORIZONTAL ─────────────────────────────────────
-  E("Bench Press", "push", ["chest","triceps","shoulders"], ["barbell","bench"], "intermediate", ["compound","upper"], ["shoulder injury"], 4, "6", 150),
-  E("Close-Grip Bench Press", "push", ["triceps","chest"], ["barbell","bench"], "intermediate", ["compound","upper"], ["elbow injury"], 4, "8", 120, "Shoulder-width grip."),
-  E("Incline Bench Press", "push", ["upper-chest","shoulders"], ["barbell","bench"], "intermediate", ["compound","upper"], ["shoulder injury"], 4, "8", 120),
-  E("Decline Bench Press", "push", ["lower-chest","triceps"], ["barbell","bench"], "intermediate", ["upper"], [], 3, "8", 120),
-  E("Dumbbell Bench Press", "push", ["chest","triceps"], ["dumbbell","bench"], "beginner", ["upper"], [], 3, "10", 90),
-  E("Dumbbell Incline Press", "push", ["upper-chest"], ["dumbbell","bench"], "beginner", ["upper"], ["shoulder injury"], 3, "10", 90),
-  E("Floor Press", "push", ["chest","triceps"], ["barbell","dumbbell"], "intermediate", ["upper"], [], 3, "8", 120, "Shoulder-friendly press."),
-  E("Push-up", "push", ["chest","triceps","core"], ["bodyweight"], "beginner", ["bodyweight","upper"], ["wrist injury"], 3, "10", 60),
-  E("Incline Push-up", "push", ["chest","triceps"], ["bodyweight","bench"], "beginner", ["bodyweight","upper","beginner-friendly"], [], 3, "12", 60),
-  E("Decline Push-up", "push", ["upper-chest"], ["bodyweight","bench"], "intermediate", ["bodyweight","upper"], ["shoulder injury"], 3, "10", 75),
-  E("Diamond Push-up", "push", ["triceps","chest"], ["bodyweight"], "intermediate", ["bodyweight","upper"], ["wrist injury"], 3, "8", 60),
-  E("Archer Push-up", "push", ["chest","triceps"], ["bodyweight"], "advanced", ["bodyweight","unilateral"], ["shoulder injury"], 3, "5/side", 75),
-  E("Dumbbell Fly", "push", ["chest"], ["dumbbell","bench"], "beginner", ["isolation","upper"], ["shoulder injury"], 3, "12", 60),
-  E("Cable Chest Fly", "push", ["chest"], ["cable"], "beginner", ["isolation","upper"], ["shoulder injury"], 3, "12", 60),
-  E("Pec Deck", "push", ["chest"], ["machine"], "beginner", ["isolation","upper"], ["shoulder injury"], 3, "12", 60),
-  E("Landmine Press", "push", ["chest","shoulders"], ["barbell"], "beginner", ["upper","shoulder-friendly"], [], 3, "10", 90, "Great for shoulder rehab."),
-  E("Dips", "push", ["chest","triceps"], ["dip-station","bodyweight"], "advanced", ["bodyweight","upper"], ["shoulder injury"], 3, "8", 120),
-
-  // ── PUSH: VERTICAL ───────────────────────────────────────
-  E("Overhead Press", "push", ["shoulders","triceps"], ["barbell"], "intermediate", ["upper","compound"], ["shoulder injury"], 4, "6", 120),
-  E("Push Press", "push", ["shoulders","triceps","legs"], ["barbell"], "intermediate", ["power","upper"], ["shoulder injury"], 4, "5", 150),
-  E("Z Press", "push", ["shoulders","core"], ["barbell","dumbbell"], "advanced", ["upper","core"], ["low back injury"], 3, "6", 120),
-  E("Seated DB Press", "push", ["shoulders"], ["dumbbell","bench"], "beginner", ["upper"], ["shoulder injury"], 3, "10", 90),
-  E("Arnold Press", "push", ["shoulders"], ["dumbbell"], "intermediate", ["upper"], ["shoulder injury"], 3, "10", 75),
-  E("Single-Arm DB Press", "push", ["shoulders","core"], ["dumbbell"], "intermediate", ["upper","unilateral"], ["shoulder injury"], 3, "8/side", 75),
-  E("Pike Push-up", "push", ["shoulders","triceps"], ["bodyweight"], "intermediate", ["bodyweight","upper"], ["shoulder injury","wrist injury"], 3, "8", 75),
-  E("Handstand Push-up", "push", ["shoulders","triceps"], ["bodyweight"], "advanced", ["bodyweight","upper"], ["shoulder injury","wrist injury"], 3, "5", 120),
-  E("Lateral Raise", "push", ["shoulders"], ["dumbbell","cable"], "beginner", ["isolation","upper"], [], 3, "12", 45),
-  E("Front Raise", "push", ["shoulders"], ["dumbbell","plate"], "beginner", ["isolation","upper"], [], 3, "10", 45),
-  E("Cable Lateral Raise", "push", ["shoulders"], ["cable"], "beginner", ["isolation","upper"], [], 3, "12", 45),
-  E("Single-Arm Cable Lateral Raise", "push", ["shoulders"], ["cable"], "beginner", ["isolation","upper","unilateral"], [], 3, "12/side", 45),
-  E("Single-Arm Landmine Press", "push", ["shoulders","core"], ["barbell"], "intermediate", ["upper","unilateral","shoulder-friendly"], [], 3, "8/side", 75),
-  E("Push Jerk", "push", ["shoulders","triceps","legs"], ["barbell"], "advanced", ["power","upper","compound"], ["shoulder injury","low back injury"], 4, "3", 180, "Dip-drive-punch under."),
-  E("Clean & Press", "push", ["full body"], ["barbell","kettlebell"], "advanced", ["power","compound","upper"], ["shoulder injury","low back injury"], 4, "5", 150),
-
-  // ── PULL: HORIZONTAL ─────────────────────────────────────
-  E("Barbell Row", "pull", ["back","biceps"], ["barbell"], "intermediate", ["compound","upper"], ["low back injury"], 4, "8", 120),
-  E("Pendlay Row", "pull", ["back","biceps"], ["barbell"], "advanced", ["compound","upper"], ["low back injury"], 4, "5", 150, "Dead-stop from floor."),
-  E("Dumbbell Row", "pull", ["back","biceps"], ["dumbbell","bench"], "beginner", ["upper"], [], 3, "10", 75),
-  E("Chest-Supported Row", "pull", ["back"], ["dumbbell","bench"], "beginner", ["upper","beginner-friendly"], [], 3, "10", 75, "Low-back friendly."),
-  E("Seal Row", "pull", ["back"], ["barbell","bench"], "intermediate", ["upper"], [], 3, "8", 90),
-  E("T-Bar Row", "pull", ["back"], ["barbell","t-bar"], "intermediate", ["compound","upper"], ["low back injury"], 3, "8", 90),
-  E("Meadows Row", "pull", ["lats","rear-delts"], ["barbell"], "advanced", ["upper","unilateral"], [], 3, "8/side", 75),
-  E("Cable Row", "pull", ["back"], ["cable"], "beginner", ["upper","beginner-friendly"], [], 3, "10", 75),
-  E("Inverted Row", "pull", ["back","biceps"], ["bar","bodyweight"], "beginner", ["bodyweight","upper"], [], 3, "10", 75),
-  E("Face Pull", "pull", ["rear-delts","upper-back"], ["cable","band"], "beginner", ["accessory","shoulder-health"], [], 3, "15", 45),
-  E("Band Pull-Apart", "pull", ["rear-delts","upper-back"], ["band"], "beginner", ["warmup","shoulder-health"], [], 3, "15", 30),
-  E("Reverse Fly", "pull", ["rear-delts"], ["dumbbell","cable"], "beginner", ["isolation","shoulder-health"], [], 3, "12", 45),
-  E("Single-Arm Cable Row", "pull", ["back","biceps"], ["cable"], "beginner", ["upper","unilateral"], [], 3, "10/side", 60),
-  E("Single-Arm Dumbbell Row", "pull", ["back","biceps","lats"], ["dumbbell","bench"], "beginner", ["upper","unilateral"], [], 3, "10/side", 60),
-  E("Kroc Row", "pull", ["back","lats","grip"], ["dumbbell","bench"], "advanced", ["upper","unilateral"], ["low back injury"], 3, "20/side", 90, "High-rep heavy row, some body english permitted."),
-  E("Chest-Supported DB Row", "pull", ["back","rear-delts"], ["dumbbell","bench"], "beginner", ["upper","beginner-friendly","low-back-safe"], [], 3, "10", 60),
-
-  // ── PULL: VERTICAL ───────────────────────────────────────
-  E("Pull-up", "pull", ["lats","biceps","back"], ["pullup-bar"], "advanced", ["bodyweight","upper"], ["elbow injury"], 4, "6", 120),
-  E("Chin-up", "pull", ["biceps","back"], ["pullup-bar"], "intermediate", ["bodyweight","upper"], ["elbow injury"], 4, "6", 120),
-  E("Neutral-Grip Pull-up", "pull", ["lats","biceps"], ["pullup-bar"], "intermediate", ["bodyweight","upper"], ["elbow injury"], 4, "6", 120, "Easier on shoulders."),
-  E("Weighted Pull-up", "pull", ["lats","biceps"], ["pullup-bar","dip-belt"], "advanced", ["upper"], ["elbow injury","shoulder injury"], 4, "5", 150),
-  E("Assisted Pull-up", "pull", ["lats","biceps"], ["machine","band"], "beginner", ["upper","beginner-friendly"], [], 3, "8", 90),
-  E("Lat Pulldown", "pull", ["lats","biceps"], ["machine","cable"], "beginner", ["upper","beginner-friendly"], [], 3, "10", 90),
-  E("Straight-Arm Pulldown", "pull", ["lats"], ["cable"], "beginner", ["isolation","upper"], [], 3, "12", 60),
-  E("Kneeling Cable Pulldown", "pull", ["lats","core"], ["cable"], "intermediate", ["upper","core"], [], 3, "10", 60),
-  E("Reverse-Grip Lat Pulldown", "pull", ["lats","biceps"], ["machine","cable"], "beginner", ["upper"], [], 3, "10", 75, "Supinated grip — a.k.a. front pulldown. Elbows drive down."),
-  E("Single-Arm Lat Pulldown", "pull", ["lats"], ["cable"], "intermediate", ["upper","unilateral","isolation"], [], 3, "10/side", 60),
-  E("Scapular Pull-up", "pull", ["lats","upper-back"], ["pullup-bar"], "beginner", ["mobility","shoulder-health","bodyweight"], [], 3, "8", 45, "Hang, depress shoulders without bending elbows."),
-  E("Dumbbell Pullover", "pull", ["lats","chest"], ["dumbbell","bench"], "intermediate", ["upper","isolation"], ["shoulder injury"], 3, "10", 75),
-
-  // ── ARMS ─────────────────────────────────────────────────
-  E("Barbell Curl", "pull", ["biceps"], ["barbell"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Dumbbell Curl", "pull", ["biceps"], ["dumbbell"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Hammer Curl", "pull", ["biceps","forearms"], ["dumbbell"], "beginner", ["isolation","arms"], [], 3, "10", 45),
-  E("Preacher Curl", "pull", ["biceps"], ["barbell","dumbbell","bench"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Incline DB Curl", "pull", ["biceps"], ["dumbbell","bench"], "intermediate", ["isolation","arms"], ["shoulder injury"], 3, "10", 60),
-  E("Cable Curl", "pull", ["biceps"], ["cable"], "beginner", ["isolation","arms"], [], 3, "12", 45),
-  E("Concentration Curl", "pull", ["biceps"], ["dumbbell","bench"], "beginner", ["isolation","arms"], [], 3, "12", 45),
-  E("Tricep Pushdown", "push", ["triceps"], ["cable"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "12", 45),
-  E("Overhead Tricep Extension", "push", ["triceps"], ["dumbbell","cable"], "beginner", ["isolation","arms"], ["shoulder injury","elbow injury"], 3, "12", 60),
-  E("Skullcrusher", "push", ["triceps"], ["barbell","dumbbell","bench"], "intermediate", ["isolation","arms"], ["elbow injury"], 3, "10", 60),
-  E("Close-Grip Push-up", "push", ["triceps","chest"], ["bodyweight"], "beginner", ["bodyweight","arms"], ["wrist injury"], 3, "10", 60),
-  E("Tricep Kickback", "push", ["triceps"], ["dumbbell"], "beginner", ["isolation","arms"], [], 3, "12", 45),
-  E("DB Skullcrusher", "push", ["triceps"], ["dumbbell","bench"], "beginner", ["isolation","arms"], ["elbow injury"], 3, "10", 60, "Elbow-friendlier than barbell."),
-  E("Cable Overhead Tricep Extension", "push", ["triceps"], ["cable","rope"], "beginner", ["isolation","arms"], ["shoulder injury"], 3, "12", 45),
-
-  // ── CORE ─────────────────────────────────────────────────
-  E("Plank", "core", ["core"], ["bodyweight"], "beginner", ["isometric","core"], [], 3, "45s", 45),
-  E("Side Plank", "core", ["obliques","core"], ["bodyweight"], "beginner", ["isometric","core"], [], 3, "30s/side", 45),
-  E("RKC Plank", "core", ["core"], ["bodyweight"], "intermediate", ["isometric","core"], [], 3, "20s", 60, "Maximum tension plank."),
-  E("Dead Bug", "core", ["core"], ["bodyweight"], "beginner", ["core","beginner-friendly","low-back-safe"], [], 3, "8/side", 45),
-  E("Bird Dog", "core", ["core","glutes"], ["bodyweight"], "beginner", ["core","stability","low-back-safe"], [], 3, "8/side", 45),
-  E("Pallof Press", "core", ["core","obliques"], ["cable","band"], "beginner", ["anti-rotation","core"], [], 3, "10/side", 45),
-  E("Suitcase Carry", "core", ["core","obliques","grip"], ["kettlebell","dumbbell"], "beginner", ["carry","anti-lateral-flexion"], [], 3, "30m/side", 60),
-  E("Farmer Carry", "cardio", ["grip","core","traps"], ["dumbbell","kettlebell"], "beginner", ["conditioning","grip"], [], 3, "40m", 75),
-  E("Ab Wheel Rollout", "core", ["core","lats"], ["ab-wheel"], "advanced", ["core"], ["low back injury"], 3, "8", 75),
-  E("Hanging Leg Raise", "core", ["core","hip-flexors"], ["pullup-bar"], "advanced", ["core","bodyweight"], ["low back injury"], 3, "8", 75),
-  E("Hanging Knee Raise", "core", ["core","hip-flexors"], ["pullup-bar"], "intermediate", ["core","bodyweight"], [], 3, "10", 60),
-  E("Cable Crunch", "core", ["core"], ["cable"], "beginner", ["core","isolation"], ["low back injury"], 3, "12", 45),
-  E("Russian Twist", "core", ["obliques","core"], ["dumbbell","plate","bodyweight"], "beginner", ["core"], ["low back injury"], 3, "12/side", 45),
-  E("V-Up", "core", ["core"], ["bodyweight"], "intermediate", ["core","bodyweight"], ["low back injury"], 3, "12", 60),
-  E("Hollow Hold", "core", ["core"], ["bodyweight"], "intermediate", ["isometric","core"], [], 3, "30s", 60),
-  E("GHD Sit-up", "core", ["core","hip-flexors"], ["ghd"], "advanced", ["core"], ["low back injury","neck injury"], 3, "10", 75),
-  E("Copenhagen Plank", "core", ["adductors","core"], ["bench","bodyweight"], "advanced", ["isometric","adductor"], [], 3, "20s/side", 60),
-  E("Reverse Crunch", "core", ["core"], ["bodyweight","bench"], "beginner", ["core","bodyweight","low-back-safe"], [], 3, "12", 45),
-  E("Dragon Flag", "core", ["core"], ["bench","bodyweight"], "advanced", ["core","bodyweight"], ["low back injury"], 3, "5", 90),
-  E("Windmill", "core", ["obliques","core","shoulders"], ["kettlebell"], "intermediate", ["core","anti-lateral-flexion"], ["low back injury","shoulder injury"], 3, "5/side", 60),
-  E("Turkish Get-Up", "core", ["full body","core","shoulders"], ["kettlebell","dumbbell"], "advanced", ["core","stability","unilateral"], [], 3, "3/side", 90, "Slow, controlled full sequence."),
-
-  // ── CONDITIONING / CARRIES ───────────────────────────────
-  E("Sled Push", "cardio", ["quads","full body"], ["sled"], "intermediate", ["conditioning","power"], [], 4, "20m", 90),
-  E("Sled Drag (Backward)", "cardio", ["quads"], ["sled"], "beginner", ["conditioning","knee-friendly"], [], 4, "20m", 75, "Rehab-friendly."),
-  E("Prowler Sprint", "cardio", ["full body"], ["sled"], "advanced", ["conditioning","power"], [], 5, "15m", 90),
-  E("Rowing (Erg)", "cardio", ["full body"], ["rower"], "beginner", ["conditioning"], [], 1, "20min", 0),
-  E("Assault Bike", "cardio", ["full body"], ["bike"], "beginner", ["conditioning","low-impact"], [], 1, "15min", 0),
-  E("Burpee", "cardio", ["full body"], ["bodyweight"], "intermediate", ["conditioning","bodyweight"], ["low back injury","wrist injury"], 4, "10", 60),
-  E("Mountain Climber", "cardio", ["core","legs"], ["bodyweight"], "beginner", ["conditioning","bodyweight"], ["wrist injury"], 3, "30s", 45),
-  E("Box Jump", "cardio", ["quads","glutes"], ["box"], "intermediate", ["power","plyometric"], ["knee injury"], 4, "5", 90),
-  E("Broad Jump", "cardio", ["quads","glutes"], ["bodyweight"], "intermediate", ["power","plyometric"], ["knee injury"], 4, "5", 90),
-  E("Skipping Rope", "cardio", ["calves","full body"], ["rope"], "beginner", ["conditioning"], [], 3, "60s", 45),
-
-  // ── CALVES / ACCESSORY ───────────────────────────────────
-  E("Standing Calf Raise", "squat", ["calves"], ["machine","dumbbell"], "beginner", ["isolation","lower"], [], 3, "15", 45),
-  E("Seated Calf Raise", "squat", ["calves"], ["machine"], "beginner", ["isolation","lower"], [], 3, "15", 45),
-  E("Single-Leg Calf Raise", "squat", ["calves"], ["bodyweight","dumbbell"], "beginner", ["isolation","unilateral"], [], 3, "12/leg", 45),
-  E("Tibialis Raise", "squat", ["tibialis"], ["bodyweight","plate"], "beginner", ["isolation","knee-health"], [], 3, "15", 45),
-  E("Reverse Nordic", "squat", ["quads"], ["bodyweight"], "intermediate", ["isolation","knee-health","flexibility"], ["knee injury"], 3, "8", 60, "Lean back from knees, keep hips extended."),
-
-  // ── MOBILITY / WARMUP ────────────────────────────────────
-  E("Cat-Cow", "mobility", ["spine"], ["bodyweight"], "beginner", ["mobility","warmup","prenatal-safe"], [], 2, "8", 0),
-  E("90/90 Hip Switch", "mobility", ["hips"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "6/side", 0),
-  E("Thoracic Rotation", "mobility", ["thoracic"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "8/side", 0),
-  E("Wall Slide", "mobility", ["shoulders","thoracic"], ["bodyweight"], "beginner", ["mobility","shoulder-health","warmup"], [], 2, "10", 0),
-  E("Scap Push-up", "mobility", ["serratus","scapula"], ["bodyweight"], "beginner", ["mobility","warmup"], ["wrist injury"], 2, "10", 0),
-  E("Hip CAR", "mobility", ["hips"], ["bodyweight"], "beginner", ["mobility","joint-health"], [], 2, "5/side", 0),
-  E("Shoulder CAR", "mobility", ["shoulders"], ["bodyweight"], "beginner", ["mobility","joint-health","warmup"], [], 2, "5/side", 0),
-  E("Leg Swing", "mobility", ["hips"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "10/side", 0),
-  E("Cossack Reach", "mobility", ["hips","adductors"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "6/side", 0),
-  E("Spiderman Lunge", "mobility", ["hips","hip-flexors","thoracic"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "5/side", 0),
-  E("Inchworm", "mobility", ["hamstrings","shoulders","core"], ["bodyweight"], "beginner", ["mobility","warmup"], ["wrist injury"], 2, "6", 0),
-  E("Adductor Rockback", "mobility", ["adductors","hips"], ["bodyweight"], "beginner", ["mobility","warmup"], [], 2, "8/side", 0),
-
-  // ── STRETCHES ────────────────────────────────────────────
-  E("Child's Pose", "stretch", ["hips","back"], ["bodyweight"], "beginner", ["flexibility","recovery","prenatal-safe"], [], 2, "60s", 0),
-  E("Pigeon Pose", "stretch", ["hips","glutes"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "60s/side", 0),
-  E("Downward Dog", "stretch", ["hamstrings","shoulders"], ["bodyweight"], "beginner", ["flexibility","warmup"], ["wrist injury"], 2, "30s", 0),
-  E("Couch Stretch", "stretch", ["hip-flexors","quads"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "60s/side", 0),
-  E("Jefferson Curl", "stretch", ["hamstrings","spine"], ["dumbbell","kettlebell","bodyweight"], "intermediate", ["flexibility"], ["low back injury","disc issue"], 3, "8", 60, "Slow, light, sequential spinal flexion."),
-  E("Figure-4 Stretch", "stretch", ["glutes","hips"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "45s/side", 0, "Supine — helpful for low-back tightness and sciatica."),
-  E("Supine Hamstring Stretch", "stretch", ["hamstrings"], ["bodyweight","band"], "beginner", ["flexibility"], [], 2, "45s/side", 0, "Strap-assisted if tight."),
-  E("Half-Kneeling Hip Flexor Stretch", "stretch", ["hip-flexors","quads"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "45s/side", 0, "Desk workers, runners."),
-  E("Standing Quad Stretch", "stretch", ["quads","hip-flexors"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "30s/side", 0),
-  E("90/90 Hip Stretch", "stretch", ["hips","glutes"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "45s/side", 0, "Static hold — distinct from the dynamic switch drill."),
-  E("Butterfly Stretch", "stretch", ["adductors","hips"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "60s", 0),
-  E("Happy Baby", "stretch", ["hips","low-back"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "45s", 0, "Supine — avoid in late pregnancy."),
-  E("Frog Stretch", "stretch", ["adductors","hips"], ["bodyweight"], "beginner", ["flexibility"], ["knee injury"], 2, "60s", 0, "Hip internal-rotation opener."),
-  E("Doorway Pec Stretch", "stretch", ["chest","shoulders"], ["bodyweight"], "beginner", ["flexibility","shoulder-health","prenatal-safe"], [], 2, "30s/side", 0),
-  E("Sleeper Stretch", "stretch", ["shoulders"], ["bodyweight"], "intermediate", ["flexibility","shoulder-health"], ["shoulder injury"], 2, "30s/side", 0, "Posterior capsule — throwers, swimmers."),
-  E("Thread the Needle", "stretch", ["thoracic","shoulders"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "30s/side", 0),
-  E("Puppy Pose", "stretch", ["chest","shoulders","lats"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "45s", 0),
-  E("Wrist Flexor/Extensor Stretch", "stretch", ["forearms"], ["bodyweight"], "beginner", ["flexibility","joint-health"], [], 2, "30s each", 0, "Both directions — desk worker essential."),
-  E("Supine Spinal Twist", "stretch", ["back","obliques"], ["bodyweight"], "beginner", ["flexibility"], [], 2, "45s/side", 0, "Supine — avoid in late pregnancy."),
-  E("Wall Calf Stretch (Gastroc)", "stretch", ["calves"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "30s/side", 0, "Straight back leg."),
-  E("Soleus Stretch (Bent Knee)", "stretch", ["calves"], ["bodyweight"], "beginner", ["flexibility","prenatal-safe"], [], 2, "30s/side", 0, "Bent back knee — Achilles health."),
-
-  // ── MACHINE: LOWER BODY ──────────────────────────────────
-  E("45° Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "beginner", ["lower","machine"], [], 3, "10", 90, "Keep lower back against pad."),
-  E("Horizontal Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "beginner", ["lower","machine","beginner-friendly"], [], 3, "12", 90),
-  E("Vertical Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "intermediate", ["lower","machine"], ["low back injury","knee injury"], 3, "10", 90),
-  E("Single-Leg Leg Press", "squat", ["quads","glutes"], ["machine","leg-press"], "intermediate", ["unilateral","lower","machine"], [], 3, "10/leg", 75),
-  E("Belt Squat", "squat", ["quads","glutes"], ["machine"], "intermediate", ["lower","machine","spine-friendly"], [], 3, "10", 90, "Loads legs without spinal compression."),
-  E("Smith Machine Squat", "squat", ["quads","glutes"], ["smith-machine"], "beginner", ["lower","machine"], [], 3, "10", 90),
-  E("Smith Machine Lunge", "squat", ["quads","glutes"], ["smith-machine"], "beginner", ["unilateral","lower","machine"], [], 3, "10/leg", 75),
-  E("Leg Extension", "squat", ["quads"], ["machine"], "beginner", ["isolation","lower","machine"], ["knee injury"], 3, "12", 60),
-  E("Single-Leg Leg Extension", "squat", ["quads"], ["machine"], "beginner", ["isolation","unilateral","lower","machine"], ["knee injury"], 3, "12/leg", 45),
-  E("Seated Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","lower","machine"], [], 3, "12", 60),
-  E("Lying Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","lower","machine"], [], 3, "12", 60),
-  E("Single-Leg Lying Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","unilateral","lower","machine"], [], 3, "12/leg", 45),
-  E("Standing Leg Curl", "hinge", ["hamstrings"], ["machine"], "beginner", ["isolation","unilateral","lower","machine"], [], 3, "12/leg", 60),
-  E("Hip Abduction Machine", "squat", ["glutes"], ["machine"], "beginner", ["isolation","lower","machine","glute"], [], 3, "15", 45),
-  E("Hip Adduction Machine", "squat", ["adductors"], ["machine"], "beginner", ["isolation","lower","machine"], [], 3, "15", 45),
-  E("Glute Kickback Machine", "hinge", ["glutes"], ["machine"], "beginner", ["isolation","glute","machine","unilateral"], [], 3, "12/leg", 45),
-
-  // ── MACHINE: UPPER BODY PUSH ─────────────────────────────
-  E("Chest Press Machine", "push", ["chest","triceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], [], 3, "10", 75),
-  E("Incline Chest Press Machine", "push", ["upper-chest"], ["machine"], "beginner", ["upper","machine"], [], 3, "10", 75),
-  E("Decline Chest Press Machine", "push", ["lower-chest"], ["machine"], "beginner", ["upper","machine"], [], 3, "10", 75),
-  E("Hammer Strength Chest Press", "push", ["chest","triceps"], ["machine"], "intermediate", ["upper","machine"], [], 3, "8", 90),
-  E("Shoulder Press Machine", "push", ["shoulders","triceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], ["shoulder injury"], 3, "10", 75),
-  E("Smith Machine Bench Press", "push", ["chest","triceps"], ["smith-machine","bench"], "intermediate", ["upper","machine"], ["shoulder injury"], 4, "8", 120),
-  E("Smith Machine Overhead Press", "push", ["shoulders"], ["smith-machine"], "intermediate", ["upper","machine"], ["shoulder injury"], 3, "8", 90),
-  E("Lateral Raise Machine", "push", ["shoulders"], ["machine"], "beginner", ["isolation","upper","machine"], [], 3, "12", 45),
-
-  // ── MACHINE: UPPER BODY PULL ─────────────────────────────
-  E("Hammer Strength Row", "pull", ["back","biceps"], ["machine"], "intermediate", ["upper","machine"], [], 3, "8", 90),
-  E("Seated Row Machine", "pull", ["back","biceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], [], 3, "10", 75),
-  E("Rear Delt Machine", "pull", ["rear-delts"], ["machine"], "beginner", ["isolation","shoulder-health","machine"], [], 3, "12", 45),
-  E("Assisted Dip Machine", "push", ["chest","triceps"], ["machine"], "beginner", ["upper","machine","beginner-friendly"], [], 3, "8", 90),
-  E("Pullover Machine", "pull", ["lats"], ["machine"], "intermediate", ["upper","machine","isolation"], [], 3, "10", 75),
-
-  // ── MACHINE: ARMS ────────────────────────────────────────
-  E("Preacher Curl Machine", "pull", ["biceps"], ["machine"], "beginner", ["isolation","arms","machine"], ["elbow injury"], 3, "10", 60),
-  E("Biceps Curl Machine", "pull", ["biceps"], ["machine"], "beginner", ["isolation","arms","machine"], [], 3, "12", 45),
-  E("Tricep Press Machine", "push", ["triceps"], ["machine"], "beginner", ["isolation","arms","machine"], [], 3, "12", 45),
-  E("Tricep Extension Machine", "push", ["triceps"], ["machine"], "beginner", ["isolation","arms","machine"], [], 3, "12", 45),
-
-  // ── MACHINE: CORE ────────────────────────────────────────
-  E("Ab Crunch Machine", "core", ["core"], ["machine"], "beginner", ["core","machine","isolation"], ["low back injury","neck injury"], 3, "15", 45),
-  E("Rotary Torso Machine", "core", ["obliques"], ["machine"], "beginner", ["core","machine","isolation"], ["low back injury"], 3, "12/side", 45),
-  E("Roman Chair Sit-up", "core", ["core","hip-flexors"], ["machine"], "intermediate", ["core","machine"], ["low back injury"], 3, "12", 60),
-
-  // ── ADDITIONAL CABLE ─────────────────────────────────────
-  E("Cable Woodchopper", "core", ["obliques","core"], ["cable"], "intermediate", ["core","anti-rotation","cable"], [], 3, "10/side", 45),
-  E("Cable Pull-Through", "hinge", ["glutes","hamstrings"], ["cable"], "beginner", ["posterior","cable","glute"], [], 3, "12", 60),
-  E("Cable Kickback", "hinge", ["glutes"], ["cable"], "beginner", ["isolation","glute","cable","unilateral"], [], 3, "12/leg", 45),
-  E("Cable Crossover", "push", ["chest"], ["cable"], "beginner", ["isolation","upper","cable"], [], 3, "12", 60),
-];
-
-/* ============================================================
    MODALITY (derived from equipment)
    ============================================================ */
 const MODALITIES = [
@@ -474,19 +213,6 @@ const addDays = (d, n) => {
   return `${y}-${mo}-${da}`;
 };
 
-const SEED_COACHES = [
-  { id: "coach_alex", name: "Alex Keaton" },
-  { id: "coach_sam",  name: "Sam Ortega" },
-];
-
-const SEED_CLIENTS = [
-  { id: uid("c"), coachId: "coach_alex", name: "Maya Okafor", age: 34, goals: "Build strength, run 10K under 52min", injuries: [], equipment: ["barbell","dumbbell","kettlebell","machine"], level: "intermediate", notes: "Trains 3x/week. Prefers morning sessions." , since: "2024-08-15", bodyweight: [{date: addDays(today(),-45), lb: 141.5},{date: addDays(today(),-30), lb: 141.1},{date: addDays(today(),-15), lb: 140.2},{date: today(), lb: 139.8}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Daniel Kaur", age: 47, goals: "Maintain mobility, reduce back stiffness", injuries: ["low back injury"], equipment: ["dumbbell","bodyweight"], level: "beginner", notes: "Desk job. Avoid heavy spinal loading.", since: "2025-01-10", bodyweight: [{date: addDays(today(),-30), lb: 181.0},{date: today(), lb: 179.5}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Serafina Liu", age: 29, goals: "Prenatal strength — 2nd trimester", injuries: [], equipment: ["dumbbell","bodyweight","band"], level: "intermediate", notes: "Focus on pelvic floor and posterior chain. No supine after week 16.", since: "2024-11-02", bodyweight: [{date: today(), lb: 129.6}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Jonah Reeves", age: 22, goals: "Add 8kg of muscle, first powerlifting meet", injuries: [], equipment: ["barbell","dumbbell","rack","bench","machine"], level: "advanced", notes: "Aggressive training volume. Loves heavy.", since: "2024-06-01", bodyweight: [{date: addDays(today(),-60), lb: 168.7},{date: addDays(today(),-30), lb: 172.2},{date: today(), lb: 175.1}] },
-  { id: uid("c"), coachId: "coach_alex", name: "Priya Shah", age: 38, goals: "Rebuild after shoulder surgery", injuries: ["shoulder injury"], equipment: ["dumbbell","band","bodyweight"], level: "beginner", notes: "Cleared for light pressing. No overhead yet.", since: "2025-03-20", bodyweight: [{date: today(), lb: 134.5}] },
-];
-
 /* ============================================================
    HELPERS
    ============================================================ */
@@ -495,254 +221,194 @@ const movementClass = (m) => ({ push:"tag-dot-push", pull:"tag-dot-pull", squat:
 const prettyDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 const shortDate = (iso) => new Date(iso+"T00:00:00").toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 
+// Month names for default-name date labels. We format by splitting the
+// YYYY-MM-DD string rather than `new Date(str)` — bare-date parsing is UTC and
+// can render the previous local day (timezone off-by-one).
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const formatNameDate = (dateStr) => {
+  const [y, m, d] = (dateStr || "").split("-");
+  const mi = parseInt(m, 10) - 1;
+  if (!y || !d || mi < 0 || mi > 11) return dateStr || "";
+  return `${MONTH_ABBR[mi]} ${parseInt(d, 10)}, ${y}`;
+};
+
+// "Maya Okafor" -> "Maya O.", single-token "Maya" -> "Maya".
+const clientLabelFromName = (name = "") => {
+  const tokens = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return "";
+  if (tokens.length === 1) return tokens[0];
+  const last = tokens[tokens.length - 1];
+  return `${tokens[0]} ${last[0]}.`;
+};
+
+// Compose a default workout name from optional template / client / date parts.
+const buildDefaultWorkoutName = ({ templateName, clientLabel, dateStr }) => {
+  const dateLabel = formatNameDate(dateStr);
+  if (templateName) return `${templateName}${clientLabel ? ` — ${clientLabel}` : ""} — ${dateLabel}`;
+  if (clientLabel) return `${dateLabel} — ${clientLabel}`;
+  return dateLabel;
+};
+
+// Make `base` unique against existing names by appending " (2)", " (3)", …
+const uniqueWorkoutName = (base, existingNames = []) => {
+  const taken = new Set(existingNames);
+  if (!taken.has(base)) return base;
+  let n = 2;
+  while (taken.has(`${base} (${n})`)) n++;
+  return `${base} (${n})`;
+};
+
+// Group blocks into render items so a superset (two blocks sharing groupId)
+// renders as a single visual unit. Solo blocks pass through unchanged.
+// Render order preserves the original workout order; a group is positioned
+// at the index of its earlier-in-the-workout member.
+function groupRenderItems(blocks) {
+  const items = [];
+  const consumed = new Set();
+  (blocks || []).forEach((block, idx) => {
+    if (consumed.has(idx)) return;
+    const gid = block.groupId;
+    if (!gid) {
+      items.push({ type: 'solo', block });
+      return;
+    }
+    const partnerIdx = (blocks || []).findIndex((b, j) => j !== idx && b.groupId === gid);
+    if (partnerIdx === -1) {
+      // Orphan group member (shouldn't happen, but render safely as solo).
+      items.push({ type: 'solo', block });
+      return;
+    }
+    const partner = blocks[partnerIdx];
+    consumed.add(partnerIdx);
+    const pair = [block, partner].sort(
+      (a, b) => (a.groupPosition ?? 99) - (b.groupPosition ?? 99)
+    );
+    items.push({ type: 'group', blocks: pair });
+  });
+  return items;
+}
+
+const SupersetChip = () => (
+  <span className="chip" style={{
+    background:"var(--accent-soft)", color:"var(--accent)",
+    borderColor:"#EBBEAF", fontSize:"10px", padding:"2px 8px",
+    letterSpacing:"0.06em", textTransform:"uppercase", fontWeight:600,
+  }}>Superset</span>
+);
+
+/* ============================================================
+   NAV PERSISTENCE
+   ============================================================ */
+const NAV_STORAGE_PREFIX = "ledger:nav:";
+// Views safe to persist. Excluded:
+// - `builder` — needs builderCtx which isn't persisted, so re-hydrating would mount it empty
+// - `clientView` — transient "view as client" preview mode; coming back to it after a reload would hide the TopBar and disorient the coach
+const PERSISTABLE_VIEWS = new Set(["dashboard", "library", "templates", "client"]);
+const CLIENT_DETAIL_TABS = new Set(["program", "history", "progress", "measurements", "profile"]);
+
+const navKey = (coachId) => `${NAV_STORAGE_PREFIX}${coachId}`;
+const readNav = (coachId) => {
+  if (!coachId) return null;
+  try {
+    const raw = sessionStorage.getItem(navKey(coachId));
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+};
+const writeNav = (coachId, blob) => {
+  if (!coachId) return;
+  try { sessionStorage.setItem(navKey(coachId), JSON.stringify(blob)); } catch {}
+};
+const clearNav = (coachId) => {
+  if (!coachId) return;
+  try { sessionStorage.removeItem(navKey(coachId)); } catch {}
+};
+const clearAllNav = () => {
+  try {
+    const stale = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(NAV_STORAGE_PREFIX)) stale.push(k);
+    }
+    stale.forEach(k => sessionStorage.removeItem(k));
+  } catch {}
+};
+
 /* ============================================================
    MAIN APP
    ============================================================ */
 export default function CoachApp() {
+  const { session } = useSession();
+  const { coaches, loading: coachesLoading, error: coachesError, createCoach, updateCoach, updateLastUsed } = useCoaches(session);
+
   const [loaded, setLoaded] = useState(false);
-  const [coaches, setCoaches] = useState([]);
   const [currentCoachId, setCurrentCoachId] = useState(null);
-  const [allClients, setAllClients] = useState([]);
-  const [exercises, setExercises] = useState([]);
-  const [allWorkouts, setAllWorkouts] = useState([]); // { id, coachId, name, clientId?, date?, isTemplate, blocks }
-  const [allLogs, setAllLogs] = useState([]); // { id, workoutId, exId, setIdx, weight, reps, notes, source, date }
-  const [allAttendance, setAllAttendance] = useState([]); // { id, workoutId, status, date }
+  const [archivePending, setArchivePending] = useState(null); // { coach, activeClients } when modal is open
+  const [isAddProfileOpen, setIsAddProfileOpen] = useState(false);
   // unitPref is now a constant — per-block unit overrides live on each block/log.
   // Kept as a named value so existing display code (bodyweight, PRs, etc.) stays unchanged.
   const unitPref = "lb";
 
   const [view, setView] = useState("dashboard");
   const [selectedClientId, setSelectedClientId] = useState(null);
+  const [clientTab, setClientTab] = useState("program");
   const [builderCtx, setBuilderCtx] = useState(null);
   const [toast, setToast] = useState(null);
+  // Gates the main view tree so we don't flash Dashboard before reading the
+  // persisted nav blob. sessionStorage can't be read until currentCoachId is
+  // known (async), so a brief blank loading state on cold start is the honest
+  // trade-off vs landing on the wrong page.
+  const [hydrated, setHydrated] = useState(false);
+
+  // Tracks which coach's nav blob has been hydrated, so writes don't race the
+  // initial read and clobber persisted state with the pre-hydration defaults.
+  const hydratedFor = useRef(null);
 
   // Load
   useEffect(() => {
     (async () => {
       const version = await load("coach:version", 0);
       const stale = version < SCHEMA_VERSION;
-
-      const [coachList, curCoach, c, e, w, l, a, legacyUnitPref] = await Promise.all([
-        load("coach:coaches", null),
-        load("coach:currentCoachId", null),
-        load("coach:clients", null),
-        load("coach:exercises", null),
-        load("coach:workouts", null),
-        load("coach:logs", null),
-        load("coach:attendance", null),
-        load("coach:unitPref", null),  // read legacy value for migration only
-      ]);
-
-      // Unit migration seed — for existing blocks/logs that lack a unit field.
-      // If the coach had previously toggled to kg, preserve that. Otherwise default lb.
-      const migrationUnit = legacyUnitPref === "kg" ? "kg" : "lb";
-
-      const coachesInit = coachList || SEED_COACHES;
-      // If the persisted current coach is archived (shouldn't happen since we
-      // block archiving the active coach, but just in case after a restore),
-      // fall back to the first non-archived coach.
-      const isCoachActive = (id) => coachesInit.some(c => c.id === id && !c.archived);
-      const firstActive = coachesInit.find(c => !c.archived);
-      const currentInit = (curCoach && isCoachActive(curCoach)) ? curCoach : (firstActive?.id || coachesInit[0]?.id || "coach_alex");
-
-      const clientsInit = c ? c.map(cl => ({ ...cl, coachId: cl.coachId || currentInit })) : SEED_CLIENTS;
-
-      // Exercise library: on stale or empty use full seed, otherwise merge new seed entries by name
-      let exercisesInit;
-      if (!e) {
-        exercisesInit = SEED_EXERCISES;
-      } else {
-        const existingNames = new Set(e.map(ex => ex.name.toLowerCase()));
-        const newOnes = SEED_EXERCISES.filter(ex => !existingNames.has(ex.name.toLowerCase()));
-        exercisesInit = newOnes.length > 0 ? [...e, ...newOnes] : e;
-      }
-
-      // Workouts: preserve, ensure coachId tagged, add planned weight field, and tag each block with unit
-      const rawWorkouts = w
-        ? w.map(wo => ({
-            ...wo,
-            coachId: wo.coachId || (wo.clientId ? (clientsInit.find(cl => cl.id === wo.clientId)?.coachId || currentInit) : currentInit),
-            blocks: (wo.blocks || []).map(b => ({ weight: null, unit: migrationUnit, ...b }))  // default unit if missing
-          }))
-        : seedDemoWorkouts(clientsInit, exercisesInit);
-      // Also ensure seeded demo blocks carry a unit (the seed itself doesn't set one)
-      const workoutsInit = rawWorkouts.map(wo => ({
-        ...wo,
-        blocks: (wo.blocks || []).map(b => ({ unit: "lb", ...b }))
-      }));
-
-      // One-shot kg→lb / cm→in migration. Guarded by version so it runs at most
-      // once per device — on save, version is bumped to 7 and this branch is
-      // skipped on every subsequent load. Pre-v7 data was stored in kg-canonical
-      // (weights) and cm-canonical (lengths); v7 stores lb and inches. Fresh
-      // installs (version=0) land on lb/in seed data and skip the flip.
-      const needsUnitFlip = version > 0 && version < 7;
-      let logsInit = l || [];
-      let clientsAfterFlip = clientsInit;
-      let workoutsAfterFlip = workoutsInit;
-      if (needsUnitFlip) {
-        const KG_TO_LB = 2.20462;
-        const CM_PER_INCH = 2.54;
-        const round2 = (n) => Math.round(n * 100) / 100;
-        const kgToLb = (v) => v == null ? v : round2(Number(v) * KG_TO_LB);
-        const cmToIn = (v) => v == null ? v : round2(Number(v) / CM_PER_INCH);
-
-        // Only convert sources that actually came from storage. Seed data
-        // (used when storage was null) is already authored in lb/in canonical.
-        if (w) {
-          workoutsAfterFlip = workoutsInit.map(wo => ({
-            ...wo,
-            blocks: (wo.blocks || []).map(b => ({
-              ...b,
-              weight: b.weight == null ? null : kgToLb(b.weight),
-            })),
-          }));
-        }
-
-        logsInit = logsInit.map(lg => ({
-          ...lg,
-          actualWeight: lg.actualWeight == null ? null : kgToLb(lg.actualWeight),
-          perSet: Array.isArray(lg.perSet)
-            ? lg.perSet.map(s => ({
-                ...s,
-                weight: s.weight == null ? null : kgToLb(s.weight),
-              }))
-            : lg.perSet,
-        }));
-
-        if (c) {
-          clientsAfterFlip = clientsInit.map(cl => {
-            const next = { ...cl };
-            if (Array.isArray(cl.bodyweight)) {
-              next.bodyweight = cl.bodyweight.map(b => {
-                if (b == null || b.kg === undefined) return b;
-                const { kg, ...rest } = b;
-                return { ...rest, lb: kgToLb(kg) };
-              });
-            }
-            if (Array.isArray(cl.measurements)) {
-              next.measurements = cl.measurements.map(m => {
-                if (m == null) return m;
-                const out = { ...m };
-                if (m.valueKg !== undefined) {
-                  out.valueLb = kgToLb(m.valueKg);
-                  delete out.valueKg;
-                }
-                if (m.valueCm !== undefined) {
-                  out.valueIn = cmToIn(m.valueCm);
-                  delete out.valueCm;
-                }
-                return out;
-              });
-            }
-            return next;
-          });
-        }
-      }
-
-      // Logs: migrate per-set logs → single-entry-per-exercise (if schema stale)
-      if (stale && logsInit.length > 0 && logsInit[0] && !("mode" in logsInit[0])) {
-        // Old format: many logs per workout/exercise (one per set)
-        // New format: one log per workout/exercise with mode+perSet
-        const grouped = {};
-        logsInit.forEach(log => {
-          const key = log.workoutId + "|" + log.exId;
-          if (!grouped[key]) grouped[key] = [];
-          grouped[key].push(log);
-        });
-        logsInit = Object.entries(grouped).map(([key, sets]) => {
-          const first = sets[0];
-          // Find the workout block to get planned values
-          const wo = workoutsAfterFlip.find(x => x.id === first.workoutId);
-          const block = wo?.blocks.find(bl => bl.exId === first.exId);
-          const planned = block ? { sets: block.sets, reps: block.reps, weight: block.weight } : null;
-
-          // Check if all sets had consistent weight/reps
-          const weights = sets.map(s => s.weight);
-          const allSameWeight = weights.every(w => w === weights[0]);
-          const repsArr = sets.map(s => String(s.reps));
-          const allSameReps = repsArr.every(r => r === repsArr[0]);
-
-          const mode = (allSameWeight && allSameReps && (!planned || (planned.weight == null || Number(planned.weight) === Number(weights[0])))) ? "asPlanned" : "modified";
-
-          return {
-            id: uid("log"),
-            workoutId: first.workoutId,
-            exId: first.exId,
-            date: first.date,
-            source: first.source || "coach",
-            notes: sets.map(s => s.notes).filter(Boolean).join(" · ") || "",
-            completed: true,
-            mode,
-            actualSets: sets.length,
-            actualReps: allSameReps ? repsArr[0] : repsArr.join(", "),
-            actualWeight: allSameWeight ? weights[0] : null,
-            perSet: mode === "modified" ? sets.map(s => ({ reps: s.reps, weight: s.weight })) : null,
-            unit: block?.unit || migrationUnit,
-          };
-        });
-      } else {
-        // Ensure every existing log has a unit field
-        logsInit = logsInit.map(lg => {
-          if (lg.unit) return lg;
-          const wo = workoutsAfterFlip.find(x => x.id === lg.workoutId);
-          const block = wo?.blocks.find(bl => bl.exId === lg.exId);
-          return { ...lg, unit: block?.unit || migrationUnit };
-        });
-      }
-
-      setCoaches(coachesInit);
-      setCurrentCoachId(currentInit);
-      setAllClients(clientsAfterFlip);
-      setExercises(exercisesInit);
-      setAllWorkouts(workoutsAfterFlip);
-      setAllLogs(logsInit);
-      setAllAttendance(a || []);
-
       if (stale) await save("coach:version", SCHEMA_VERSION);
-      // Legacy unitPref key no longer read on future loads — clear it to keep storage tidy.
-      if (legacyUnitPref !== null) await save("coach:unitPref", null);
       setLoaded(true);
     })();
   }, []);
 
-  // Save
-  useEffect(() => { if (loaded) save("coach:coaches", coaches); }, [coaches, loaded]);
-  useEffect(() => { if (loaded && currentCoachId) save("coach:currentCoachId", currentCoachId); }, [currentCoachId, loaded]);
-  useEffect(() => { if (loaded) save("coach:clients", allClients); }, [allClients, loaded]);
-  useEffect(() => { if (loaded) save("coach:exercises", exercises); }, [exercises, loaded]);
-  useEffect(() => { if (loaded) save("coach:workouts", allWorkouts); }, [allWorkouts, loaded]);
-  useEffect(() => { if (loaded) save("coach:logs", allLogs); }, [allLogs, loaded]);
-  useEffect(() => { if (loaded) save("coach:attendance", allAttendance); }, [allAttendance, loaded]);
+  // Bootstrap and reconcile currentCoachId against the loaded coaches array.
+  // useCoaches returns coaches sorted by last_used_at DESC, so coaches[0] is
+  // the most recently used profile — the right default on a cold start. If
+  // the current selection later becomes invalid (e.g. the user signed in as a
+  // different auth identity), fall back to coaches[0] as well. If
+  // currentCoachId is already valid, do nothing (preserves the user's
+  // selection across re-renders within the session).
+  useEffect(() => {
+    if (coaches.length === 0) return;
+    const validIds = new Set(coaches.map(c => c.id));
+    if (!currentCoachId || !validIds.has(currentCoachId)) {
+      const fallbackId = coaches[0].id;
+      setCurrentCoachId(fallbackId);
+      // Persist that this profile is now the most-recently-used. DB-backed
+      // coaches only — seeded fallbacks won't have a real row to update, so
+      // swallow the error silently.
+      updateLastUsed(fallbackId).catch(() => {});
+    }
+  }, [coaches, currentCoachId, updateLastUsed]);
 
   // ── Coach-scoped views — each coach only sees their own ──
-  const clients = useMemo(() => allClients.filter(c => c.coachId === currentCoachId), [allClients, currentCoachId]);
-  const workouts = useMemo(() => allWorkouts.filter(w => w.coachId === currentCoachId), [allWorkouts, currentCoachId]);
-  const workoutIdsForCoach = useMemo(() => new Set(workouts.map(w => w.id)), [workouts]);
-  const logs = useMemo(() => allLogs.filter(l => workoutIdsForCoach.has(l.workoutId)), [allLogs, workoutIdsForCoach]);
-  const attendance = useMemo(() => allAttendance.filter(a => workoutIdsForCoach.has(a.workoutId)), [allAttendance, workoutIdsForCoach]);
-
-  // Scoped setters — mutate only current-coach data, leave other coaches untouched
-  const setClients = (next) => {
-    const resolved = typeof next === "function" ? next(clients) : next;
-    const others = allClients.filter(c => c.coachId !== currentCoachId);
-    setAllClients([...others, ...resolved.map(c => ({ ...c, coachId: c.coachId || currentCoachId }))]);
-  };
-  const setWorkouts = (next) => {
-    const resolved = typeof next === "function" ? next(workouts) : next;
-    const others = allWorkouts.filter(w => w.coachId !== currentCoachId);
-    setAllWorkouts([...others, ...resolved.map(w => ({ ...w, coachId: w.coachId || currentCoachId }))]);
-  };
-  const setLogs = (next) => {
-    const resolved = typeof next === "function" ? next(logs) : next;
-    const others = allLogs.filter(l => !workoutIdsForCoach.has(l.workoutId));
-    setAllLogs([...others, ...resolved]);
-  };
-  const setAttendance = (next) => {
-    const resolved = typeof next === "function" ? next(attendance) : next;
-    const others = allAttendance.filter(a => !workoutIdsForCoach.has(a.workoutId));
-    setAllAttendance([...others, ...resolved]);
-  };
+  const { clients: dbClients, createClient, updateClient } = useClients(currentCoachId);
+  const clients = useMemo(
+    () => dbClients.map(c => ({
+      ...c,
+      coachId: c.coach_id,
+      archivedAt: c.archived_at,
+      notes: c.notes,
+      since: c.since,
+    })),
+    [dbClients]
+  );
+  const { workouts, createWorkout, addBlock, updateWorkout, deleteWorkout, completeWorkout, uncompleteWorkout } = useWorkouts(currentCoachId);
+  const { exercises, createExercise, updateExercise, deleteExercise } = useExercises(currentCoachId);
+  const { logs, createLog, deleteLog } = useLogs(currentCoachId);
+  const { attendance, setAttendance: upsertAttendance } = useAttendance(currentCoachId);
 
   const notify = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
 
@@ -750,125 +416,145 @@ export default function CoachApp() {
   const currentCoach = coaches.find(c => c.id === currentCoachId);
 
   const switchCoach = (id) => {
+    setHydrated(false);
+    if (currentCoachId) clearNav(currentCoachId);
     setCurrentCoachId(id);
     setSelectedClientId(null);
+    setClientTab("program");
     setBuilderCtx(null);
     setView("dashboard");
     const c = coaches.find(x => x.id === id);
     if (c) notify(`Switched to ${c.name}`);
-  };
-  const addCoach = (coach) => {
-    setCoaches([...coaches, coach]);
-    switchCoach(coach.id);
+    updateLastUsed(id).catch(() => {});
   };
 
-  // Archive a coach. Their active (non-archived) clients are passed in as
-  // resolutions: each entry is { clientId, action: "archive" | "transfer", targetCoachId? }.
-  // If `force === true`, the resolutions array can be empty/incomplete and any
-  // remaining active clients keep their existing coachId (orphaned to the archived coach).
-  const archiveCoach = (coachId, resolutions = [], force = false) => {
-    if (coachId === currentCoachId) {
-      notify("Switch to a different coach before archiving this one");
-      return false;
-    }
-    const target = coaches.find(c => c.id === coachId);
-    if (!target) return false;
+  const handleSignOut = () => {
+    clearAllNav();
+    supabase.auth.signOut();
+  };
 
-    // Apply client resolutions
-    const resMap = Object.fromEntries(resolutions.map(r => [r.clientId, r]));
-    const updatedClients = allClients.map(cl => {
-      const r = resMap[cl.id];
-      if (!r) return cl;
-      if (r.action === "archive") return { ...cl, archived: true, archivedAt: today() };
-      if (r.action === "transfer" && r.targetCoachId) return { ...cl, coachId: r.targetCoachId };
-      return cl;
-    });
+  // Hydrate persisted nav once per coach activation. Client existence is NOT
+  // validated here — useClients doesn't expose a reliable loading flag, so an
+  // empty initial array would force a false fallback to dashboard on every
+  // reload. Orphan-client cleanup happens in the render-time effect below.
+  // Flips `hydrated` so the main view tree only mounts after the persisted
+  // state has been applied — prevents a Dashboard flash on cold start.
+  useEffect(() => {
+    if (!currentCoachId) return;
+    if (hydratedFor.current === currentCoachId) return;
 
-    // Strict guardrail: if not force, every active client must be resolved
-    if (!force) {
-      const stillActive = updatedClients.filter(cl => cl.coachId === coachId && !cl.archived);
-      if (stillActive.length > 0) {
-        notify(`${stillActive.length} active client${stillActive.length === 1 ? "" : "s"} still assigned`);
-        return false;
+    const blob = readNav(currentCoachId);
+    hydratedFor.current = currentCoachId;
+
+    if (blob) {
+      let nextView = "dashboard";
+      let nextClientId = null;
+      let nextTab = "program";
+
+      if (typeof blob.view === "string" && PERSISTABLE_VIEWS.has(blob.view)) {
+        nextView = blob.view;
+        if (blob.view === "client" && blob.selectedClientId) {
+          nextClientId = blob.selectedClientId;
+        }
       }
+      if (typeof blob.clientTab === "string" && CLIENT_DETAIL_TABS.has(blob.clientTab)) {
+        nextTab = blob.clientTab;
+      }
+
+      setView(nextView);
+      setSelectedClientId(nextClientId);
+      setClientTab(nextTab);
     }
 
-    setAllClients(updatedClients);
-    setCoaches(coaches.map(c => c.id === coachId ? { ...c, archived: true, archivedAt: today() } : c));
-    notify(`Archived ${target.name}`);
-    return true;
-  };
+    setHydrated(true);
+  }, [currentCoachId]);
 
-  const restoreCoach = (coachId) => {
+  // Render-time orphan fallback: if the persisted client was archived/deleted
+  // between sessions, drop back to dashboard once clients have actually loaded.
+  // Gated on hydration to avoid clobbering before the read effect fires.
+  useEffect(() => {
+    if (hydratedFor.current !== currentCoachId) return;
+    if (view !== "client") return;
+    if (clients.length === 0) return;
+    if (!selectedClientId) return;
+    if (clients.some(c => c.id === selectedClientId)) return;
+    setView("dashboard");
+    setSelectedClientId(null);
+  }, [currentCoachId, view, selectedClientId, clients]);
+
+  // Persist nav whenever the tracked slices change. Gated on hydratedFor so we
+  // don't overwrite a freshly read blob with the pre-hydration defaults.
+  useEffect(() => {
+    if (!currentCoachId) return;
+    if (hydratedFor.current !== currentCoachId) return;
+    writeNav(currentCoachId, { view, selectedClientId, clientTab });
+  }, [currentCoachId, view, selectedClientId, clientTab]);
+  // Cascade-archive: archiving a coach also archives every one of their active
+  // clients. If the coach has no active clients, archive immediately. Otherwise
+  // open a confirmation modal that lists each affected client. Per-client export
+  // (download training history) ships in Finale-1.5 — placeholder buttons only.
+  const archiveCoach = async (coachId) => {
     const target = coaches.find(c => c.id === coachId);
     if (!target) return;
-    setCoaches(coaches.map(c => c.id === coachId ? { ...c, archived: false, archivedAt: undefined } : c));
-    notify(`Restored ${target.name}`);
+
+    const { data, error } = await supabase
+      .from('clients')
+      .select('id, name')
+      .eq('coach_id', coachId)
+      .eq('archived', false);
+    if (error) {
+      console.error('archiveCoach: failed to load active clients', error);
+      alert(`Couldn't load active clients for ${target.name}: ${error.message ?? error}`);
+      return;
+    }
+
+    const activeClients = data ?? [];
+    if (activeClients.length === 0) {
+      await finalizeArchive(target, []);
+      return;
+    }
+    setArchivePending({ coach: target, activeClients });
   };
 
-  // ── Backup / Restore ─────────────────────────────────────
-  const exportData = () => {
-    const snapshot = {
-      appName: "Ledger",
-      schemaVersion: SCHEMA_VERSION,
-      exportedAt: new Date().toISOString(),
-      coaches,
-      currentCoachId,
-      clients: allClients,
-      exercises,
-      workouts: allWorkouts,
-      logs: allLogs,
-      attendance: allAttendance,
-    };
-    const json = JSON.stringify(snapshot, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const dateStr = today();
-    a.href = url;
-    a.download = `ledger-backup-${dateStr}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    notify("Backup downloaded");
-  };
-
-  const importData = (file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
+  // Bulk-archive the listed clients then archive the coach. Stops on first
+  // failure and surfaces an alert; partial state is left in place (no rollback).
+  const finalizeArchive = async (target, activeClients) => {
+    for (const cl of activeClients) {
       try {
-        const data = JSON.parse(e.target.result);
-        if (!data.appName || data.appName !== "Ledger") {
-          notify("Not a valid Ledger backup file");
-          return;
-        }
-        // Restore everything. For legacy backups (schemaVersion < 5), use the backup's
-        // unitPref to seed unit fields on any block/log that doesn't have one yet.
-        const backupUnit = data.unitPref === "kg" ? "kg" : "lb";
-        if (data.coaches) setCoaches(data.coaches);
-        if (data.currentCoachId) setCurrentCoachId(data.currentCoachId);
-        if (data.clients) setAllClients(data.clients);
-        if (data.exercises) setExercises(data.exercises);
-        if (data.workouts) {
-          setAllWorkouts(data.workouts.map(wo => ({
-            ...wo,
-            blocks: (wo.blocks || []).map(b => ({ unit: backupUnit, ...b }))
-          })));
-        }
-        if (data.logs) {
-          setAllLogs(data.logs.map(lg => ({ unit: backupUnit, ...lg })));
-        }
-        if (data.attendance) setAllAttendance(data.attendance);
-        setSelectedClientId(null);
-        setBuilderCtx(null);
-        setView("dashboard");
-        notify(`Restored from ${shortDate(data.exportedAt?.slice(0,10) || today())}`);
+        await updateClient(cl.id, { archived: true, archivedAt: today() });
       } catch (err) {
-        notify("Couldn't read that file");
+        console.error('finalizeArchive: client update failed', cl, err);
+        alert(`Failed to archive client "${cl.name}": ${err?.message ?? err}. Archive aborted; some clients may already be archived.`);
+        return;
       }
-    };
-    reader.readAsText(file);
+    }
+    try {
+      await updateCoach(target.id, { archived: true, archivedAt: today() });
+    } catch (err) {
+      console.error('finalizeArchive: coach update failed', target, err);
+      alert(`Failed to archive coach ${target.name}: ${err?.message ?? err}. Their clients have already been archived.`);
+      return;
+    }
+    if (currentCoachId === target.id) {
+      const next = coaches.find(c => c.id !== target.id && !c.archived);
+      setCurrentCoachId(next ? next.id : null);
+      if (next) updateLastUsed(next.id).catch(() => {});
+    }
+    notify(`Archived ${target.name}`);
+    setArchivePending(null);
+  };
+
+  const restoreCoach = async (coachId) => {
+    const target = coaches.find(c => c.id === coachId);
+    if (!target) return;
+    try {
+      await updateCoach(coachId, { archived: false, archivedAt: null });
+    } catch (err) {
+      console.error('restoreCoach: update failed', target, err);
+      alert(`Failed to restore coach ${target.name}: ${err?.message ?? err}.`);
+      return;
+    }
+    notify(`Restored ${target.name}`);
   };
 
   if (!loaded) {
@@ -882,7 +568,27 @@ export default function CoachApp() {
   return (
     <div className="h-screen w-full flex flex-col overflow-hidden paper-grain" style={{background:"var(--paper)"}}>
       <GlobalStyles />
-      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} clients={allClients} onSwitch={switchCoach} onAddCoach={addCoach} onArchive={archiveCoach} onRestore={restoreCoach} onExport={exportData} onImport={importData}/>}
+      {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} onSwitch={switchCoach} onAddProfile={() => setIsAddProfileOpen(true)} onArchive={archiveCoach} onRestore={restoreCoach} onSignOut={handleSignOut}/>}
+      {archivePending && (
+        <ArchiveCoachModal
+          coach={archivePending.coach}
+          activeClients={archivePending.activeClients}
+          onCancel={() => setArchivePending(null)}
+          onConfirm={() => finalizeArchive(archivePending.coach, archivePending.activeClients)}
+        />
+      )}
+      {isAddProfileOpen && (
+        <AddProfileModal
+          existingCoaches={coaches}
+          onClose={() => setIsAddProfileOpen(false)}
+          onCreate={async ({ name }) => {
+            const newCoach = await createCoach({ name });
+            switchCoach(newCoach.id);
+            notify(`Created profile ${newCoach.name}`);
+            setIsAddProfileOpen(false);
+          }}
+        />
+      )}
       <div className="flex-1 flex overflow-hidden">
         {view !== "builder" && view !== "clientView" && (
           <Sidebar
@@ -890,25 +596,47 @@ export default function CoachApp() {
             clients={clients}
             selectedClientId={selectedClientId}
             onSelectClient={(id) => { setSelectedClientId(id); setView("client"); }}
-            onAddClient={(c) => { setClients([...clients, c]); notify("Client added"); }}
+            onAddClient={async (c) => {
+              try {
+                await createClient(c);
+                notify("Client added");
+              } catch (err) {
+                console.error("createClient failed", err);
+                alert("Failed to add client. Please try again.");
+              }
+            }}
           />
         )}
         <main className="flex-1 overflow-y-auto">
-          {view === "dashboard" && (
+          {!hydrated && (
+            <div className="h-full w-full flex items-center justify-center">
+              <div className="display text-lg tracking-tight" style={{color:"var(--ink)", opacity: 0.5}}>loading…</div>
+            </div>
+          )}
+          {hydrated && view === "dashboard" && (
             <Dashboard
               clients={clients} workouts={workouts} logs={logs} attendance={attendance}
               onOpenClient={(id) => { setSelectedClientId(id); setView("client"); }}
               onBuild={(ctx) => { setBuilderCtx(ctx); setView("builder"); }}
             />
           )}
-          {view === "client" && selectedClient && (
+          {hydrated && view === "client" && selectedClient && (
             <ClientDetail
               client={selectedClient}
+              tab={clientTab}
+              onTabChange={setClientTab}
               workouts={workouts} exercises={exercises} logs={logs} attendance={attendance} unitPref={unitPref}
-              onUpdate={(patch) => setClients(clients.map(c => c.id === selectedClient.id ? {...c, ...patch} : c))}
+              onUpdate={async (patch) => {
+                try {
+                  await updateClient(selectedClient.id, patch);
+                } catch (err) {
+                  console.error("updateClient failed", err);
+                  alert("Failed to save changes. Please try again.");
+                }
+              }}
               onBuild={(ctx) => { setBuilderCtx({clientId: selectedClient.id, ...ctx}); setView("builder"); }}
               onViewAsClient={() => setView("clientView")}
-              onApplyTemplate={(template, date, mode) => {
+              onApplyTemplate={async (template, date, mode) => {
                 const cloned = {
                   ...template,
                   id: uid("w"),
@@ -919,33 +647,120 @@ export default function CoachApp() {
                   blocks: template.blocks.map(b => ({...b})), // deep-copy
                 };
                 if (mode === "quick") {
-                  setWorkouts([...workouts, cloned]);
-                  notify(`"${template.name}" assigned to ${selectedClient.name.split(" ")[0]}`);
+                  cloned.name = uniqueWorkoutName(
+                    buildDefaultWorkoutName({
+                      templateName: template.name,
+                      clientLabel: clientLabelFromName(selectedClient.name),
+                      dateStr: date,
+                    }),
+                    workouts.map(w => w.name).filter(Boolean)
+                  );
+                  try {
+                    await createWorkout(cloned);
+                    notify(`"${template.name}" assigned to ${selectedClient.name.split(" ")[0]}`);
+                  } catch (err) {
+                    console.error("createWorkout failed", err);
+                    alert("Failed to assign template. Please try again.");
+                  }
                 } else {
-                  // Edit-first: open builder pre-filled, save adds it
+                  // Edit-first: open builder pre-filled, save adds it. Leave the
+                  // name blank so the builder auto-names on save; stash the source
+                  // template name (transient, never persisted) for that default.
+                  cloned.name = "";
+                  cloned.sourceTemplateName = template.name;
                   setBuilderCtx({ workoutId: cloned.id, clientId: selectedClient.id, date, prefill: cloned });
                   setView("builder");
                 }
               }}
-              onLog={(log) => { setLogs([...logs, {...log, id: uid("log")}]); notify("Logged"); }}
-              onAttendance={(rec) => { setAttendance([...attendance.filter(a => a.workoutId !== rec.workoutId), {...rec, id: uid("att")}]); notify(`Marked ${rec.status}`); }}
-              onDeleteLog={(id) => setLogs(logs.filter(l => l.id !== id))}
+              onLog={async (log) => {
+                try { await createLog(log); notify("Logged"); }
+                catch (err) {
+                  console.error("log save failed", err);
+                  alert("Failed to save log: " + err.message);
+                }
+              }}
+              onAttendance={async (rec) => {
+                try { await upsertAttendance(rec.workoutId, rec.status, rec.date); notify(`Marked ${rec.status}`); }
+                catch (err) {
+                  console.error("attendance save failed", err);
+                  alert("Failed to save attendance: " + err.message);
+                }
+              }}
+              onDeleteLog={async (id) => {
+                try { await deleteLog(id); }
+                catch (err) {
+                  console.error("log delete failed", err);
+                  alert("Failed to delete log: " + err.message);
+                }
+              }}
+              onCompleteWorkout={async (id) => {
+                try { await completeWorkout(id); notify("Session completed"); }
+                catch (err) {
+                  console.error("complete failed", err);
+                  alert("Failed to update session: " + err.message);
+                }
+              }}
+              onUncompleteWorkout={async (id) => {
+                try { await uncompleteWorkout(id); notify("Marked in progress"); }
+                catch (err) {
+                  console.error("uncomplete failed", err);
+                  alert("Failed to update session: " + err.message);
+                }
+              }}
+              onDeleteWorkout={async (id) => {
+                try { await deleteWorkout(id); notify("Workout deleted"); }
+                catch (err) {
+                  console.error("deleteWorkout failed", err);
+                  alert("Failed to delete workout: " + err.message);
+                }
+              }}
             />
           )}
-          {view === "library" && (
+          {hydrated && view === "library" && (
             <ExerciseLibrary
               exercises={exercises} clients={clients}
-              onAdd={(ex) => { setExercises([...exercises, ex]); notify("Exercise added"); }}
-              onUpdate={(ex) => setExercises(exercises.map(x => x.id === ex.id ? ex : x))}
-              onDelete={(id) => setExercises(exercises.filter(x => x.id !== id))}
+              onAdd={async (ex) => {
+                try {
+                  await createExercise(ex);
+                  notify("Exercise added");
+                } catch (err) {
+                  console.error("createExercise failed", err);
+                  alert(err.message || "Failed to add exercise. Please try again.");
+                }
+              }}
+              onUpdate={async (ex) => {
+                try {
+                  await updateExercise(ex.id, ex);
+                } catch (err) {
+                  console.error("updateExercise failed", err);
+                  alert(err.message || "Failed to update exercise. Please try again.");
+                }
+              }}
+              onDelete={async (id) => {
+                try {
+                  await deleteExercise(id);
+                } catch (err) {
+                  console.error("deleteExercise failed", err);
+                  alert(err.message || "Failed to delete exercise. Please try again.");
+                }
+              }}
             />
           )}
-          {view === "templates" && (
+          {hydrated && view === "templates" && (
             <TemplatesView
               workouts={workouts} exercises={exercises} clients={clients}
               onBuild={(ctx) => { setBuilderCtx(ctx); setView("builder"); }}
-              onDelete={(id) => { setWorkouts(workouts.filter(w => w.id !== id)); notify("Template deleted"); }}
-              onAssign={(template, clientId, date) => {
+              onDelete={async (id) => {
+                try {
+                  await deleteWorkout(id);
+                  notify("Template deleted");
+                } catch (err) {
+                  console.error("deleteWorkout failed", err);
+                  alert("Failed to delete template. Please try again.");
+                }
+              }}
+              onAssign={async (template, clientId, date) => {
+                const c = clients.find(cl => cl.id === clientId);
                 const cloned = {
                   ...template,
                   id: uid("w"),
@@ -955,27 +770,45 @@ export default function CoachApp() {
                   isTemplate: false,
                   blocks: template.blocks.map(b => ({...b})),
                 };
-                setWorkouts([...workouts, cloned]);
-                const c = clients.find(cl => cl.id === clientId);
-                notify(`"${template.name}" assigned to ${c?.name.split(" ")[0] || "client"}`);
+                cloned.name = uniqueWorkoutName(
+                  buildDefaultWorkoutName({
+                    templateName: template.name,
+                    clientLabel: c ? clientLabelFromName(c.name) : null,
+                    dateStr: date,
+                  }),
+                  workouts.map(w => w.name).filter(Boolean)
+                );
+                try {
+                  await createWorkout(cloned);
+                  notify(`"${template.name}" assigned to ${c?.name.split(" ")[0] || "client"}`);
+                } catch (err) {
+                  console.error("createWorkout failed", err);
+                  alert("Failed to assign template. Please try again.");
+                }
               }}
             />
           )}
-          {view === "builder" && (
+          {hydrated && view === "builder" && (
             <WorkoutBuilder
               ctx={builderCtx} exercises={exercises} clients={clients} workouts={workouts} logs={logs}
-              notify={notify} unitPref={unitPref}
+              notify={notify} unitPref={unitPref} coachId={currentCoachId}
               onCancel={() => { setView(builderCtx?.clientId ? "client" : "dashboard"); }}
-              onSave={(workout) => {
+              onSave={async (workout) => {
                 const existing = workouts.find(w => w.id === workout.id);
-                if (existing) setWorkouts(workouts.map(w => w.id === workout.id ? workout : w));
-                else setWorkouts([...workouts, workout]);
-                notify(workout.isTemplate ? "Template saved" : "Workout saved");
-                setView(builderCtx?.clientId ? "client" : "dashboard");
+                try {
+                  if (existing) await updateWorkout(workout.id, workout);
+                  else await createWorkout(workout);
+                  notify(workout.isTemplate ? "Template saved" : "Workout saved");
+                  setView(builderCtx?.clientId ? "client" : "dashboard");
+                } catch (err) {
+                  console.error("workout save failed", err);
+                  alert("Failed to save workout. Please try again.");
+                  throw err;
+                }
               }}
             />
           )}
-          {view === "clientView" && selectedClient && (
+          {hydrated && view === "clientView" && selectedClient && (
             <ClientView
               client={selectedClient}
               workouts={workouts.filter(w => w.clientId === selectedClient.id && !w.isTemplate)}
@@ -983,14 +816,35 @@ export default function CoachApp() {
               logs={logs.filter(l => workouts.some(w => w.id === l.workoutId && w.clientId === selectedClient.id))}
               unitPref={unitPref}
               onExit={() => setView("client")}
-              onLog={(log) => { setLogs([...logs, {...log, id: uid("log"), source: "client"}]); notify("Logged"); }}
-              onCreateSelfDirected={(workout) => {
-                const w = { ...workout, id: uid("w"), coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
-                setWorkouts([...workouts, w]);
-                notify("Session created");
-                return w.id;
+              onLog={async (log) => {
+                try { await createLog({...log, source: "client"}); notify("Logged"); }
+                catch (err) {
+                  console.error("solo log save failed", err);
+                  alert("Failed to save log: " + err.message);
+                }
               }}
-              onUpdateClient={(patch) => setClients(clients.map(c => c.id === selectedClient.id ? {...c, ...patch} : c))}
+              onDeleteLog={async (id) => {
+                try { await deleteLog(id); }
+                catch (err) {
+                  console.error("log delete failed", err);
+                  alert("Failed to delete log: " + err.message);
+                }
+              }}
+              onCreateSelfDirected={async (workout) => {
+                const existingNames = workouts.filter(w => w.clientId === selectedClient.id).map(w => w.name).filter(Boolean);
+                const name = uniqueWorkoutName(workout.name, existingNames);
+                const w = { ...workout, name, coachId: currentCoachId, clientId: selectedClient.id, isTemplate: false, isSelfDirected: true };
+                try {
+                  const created = await createWorkout(w);
+                  notify("Session created");
+                  return created;
+                } catch (err) {
+                  console.error("createWorkout failed", err);
+                  alert("Failed to create session. Please try again.");
+                  return null;
+                }
+              }}
+              addBlock={addBlock}
             />
           )}
         </main>
@@ -1008,16 +862,12 @@ export default function CoachApp() {
 /* ============================================================
    TOP BAR
    ============================================================ */
-function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchive, onRestore, onExport, onImport }) {
+function TopBar({ coaches, currentCoach, onSwitch, onAddProfile, onArchive, onRestore, onSignOut }) {
   const [time, setTime] = useState(new Date());
   const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [confirmImport, setConfirmImport] = useState(null); // holds File
-  const [archiveTarget, setArchiveTarget] = useState(null); // coach being archived
   const [showArchived, setShowArchived] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const ref = useRef(null);
-  const fileRef = useRef(null);
   useEffect(() => { const t = setInterval(() => setTime(new Date()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => {
     const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
@@ -1058,259 +908,200 @@ function TopBar({ coaches, currentCoach, clients, onSwitch, onAddCoach, onArchiv
           {open && (
             <div className="absolute top-full right-0 mt-2 z-40 grow-in min-w-[240px] rounded-xl overflow-hidden"
               style={{background:"#fff", border:"1px solid var(--line)", boxShadow:"0 16px 40px rgba(22,20,15,0.15)"}}>
-              <div className="px-3 pt-3 pb-2">
-                <div className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Switch coach</div>
-              </div>
-              <div className="px-1 pb-1">
-                {activeCoaches.map(c => (
-                  <div key={c.id}
-                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left group"
-                    style={c.id === currentCoach?.id ? {background:"var(--paper-2)"} : {}}>
-                    <button onClick={() => { onSwitch(c.id); setOpen(false); }} className="flex items-center gap-2.5 flex-1 text-left hover-lift rounded">
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold"
-                        style={{background: c.id === currentCoach?.id ? "var(--ink)" : "var(--paper-2)", color: c.id === currentCoach?.id ? "var(--paper)" : "var(--ink)"}}>
-                        {initials(c.name)}
-                      </div>
-                      <span className="flex-1 text-sm font-medium">{c.name}</span>
-                      {c.id === currentCoach?.id && <Check size={13} style={{color:"var(--accent)"}}/>}
-                    </button>
-                    {c.id !== currentCoach?.id && activeCoaches.length > 1 && (
-                      <button onClick={() => { setArchiveTarget(c); setOpen(false); }}
-                        className="p-1 rounded hover-lift opacity-0 group-hover:opacity-100"
-                        style={{color:"var(--muted)"}} title="Archive coach">
-                        <Archive size={13}/>
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {archivedCoaches.length > 0 && (
+              {coaches.length === 1 && (
+                <div className="px-3 pt-3 pb-2.5">
+                  <div className="mono text-[10px] uppercase tracking-widest mb-1" style={{color:"var(--muted)"}}>Coach</div>
+                  <div className="text-sm font-medium">{currentCoach?.name || "—"}</div>
+                </div>
+              )}
+              {coaches.length >= 2 && (
                 <>
-                  <div className="divider mx-2"/>
-                  <button onClick={() => setShowArchived(!showArchived)}
-                    className="w-full flex items-center justify-between px-3 py-2 hover-lift text-left text-xs mono uppercase tracking-widest" style={{color:"var(--muted)"}}>
-                    <span>Archived ({archivedCoaches.length})</span>
-                    <ChevronRight size={11} style={{transform: showArchived ? "rotate(90deg)" : "rotate(0)", transition:"transform .15s"}}/>
-                  </button>
-                  {showArchived && (
-                    <div className="px-1 pb-1">
-                      {archivedCoaches.map(c => (
-                        <div key={c.id} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left">
+                  <div className="px-3 pt-3 pb-2">
+                    <div className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Switch coach</div>
+                  </div>
+                  <div className="px-1 pb-1">
+                    {activeCoaches.map(c => (
+                      <div key={c.id}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left group"
+                        style={c.id === currentCoach?.id ? {background:"var(--paper-2)"} : {}}>
+                        <button onClick={() => { onSwitch(c.id); setOpen(false); }} className="flex items-center gap-2.5 flex-1 text-left hover-lift rounded">
                           <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold"
-                            style={{background:"var(--paper-2)", color:"var(--muted)"}}>
+                            style={{background: c.id === currentCoach?.id ? "var(--ink)" : "var(--paper-2)", color: c.id === currentCoach?.id ? "var(--paper)" : "var(--ink)"}}>
                             {initials(c.name)}
                           </div>
-                          <span className="flex-1 text-sm" style={{color:"var(--muted)"}}>{c.name}</span>
-                          <button onClick={() => onRestore?.(c.id)} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>Restore</button>
+                          <span className="flex-1 text-sm font-medium">{c.name}</span>
+                          {c.id === currentCoach?.id && <Check size={13} style={{color:"var(--accent)"}}/>}
+                        </button>
+                        {c.id !== currentCoach?.id && activeCoaches.length > 1 && (
+                          <button onClick={() => { onArchive?.(c.id); setOpen(false); }}
+                            className="p-1 rounded hover-lift opacity-0 group-hover:opacity-100"
+                            style={{color:"var(--muted)"}} title="Archive coach">
+                            <Archive size={13}/>
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {archivedCoaches.length > 0 && (
+                    <>
+                      <div className="divider mx-2"/>
+                      <button onClick={() => setShowArchived(!showArchived)}
+                        className="w-full flex items-center justify-between px-3 py-2 hover-lift text-left text-xs mono uppercase tracking-widest" style={{color:"var(--muted)"}}>
+                        <span>Archived ({archivedCoaches.length})</span>
+                        <ChevronRight size={11} style={{transform: showArchived ? "rotate(90deg)" : "rotate(0)", transition:"transform .15s"}}/>
+                      </button>
+                      {showArchived && (
+                        <div className="px-1 pb-1">
+                          {archivedCoaches.map(c => (
+                            <div key={c.id} className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left">
+                              <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold"
+                                style={{background:"var(--paper-2)", color:"var(--muted)"}}>
+                                {initials(c.name)}
+                              </div>
+                              <span className="flex-1 text-sm" style={{color:"var(--muted)"}}>{c.name}</span>
+                              <button onClick={() => onRestore?.(c.id)} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>Restore</button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
-              <div className="divider mx-2"/>
-              <button onClick={() => { setAdding(true); setOpen(false); }}
+              {/* UI-only cap. DB enforcement deferred to Phase 5 (payment gating). */}
+              {activeCoaches.length < 5 && (
+                <>
+                  <div className="divider mx-2"/>
+                  <button onClick={() => { onAddProfile(); setOpen(false); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
+                    <Plus size={14}/> Add a profile
+                  </button>
+                </>
+              )}
+              <div style={{borderTop:"1px solid var(--line-2)"}}/>
+              <button onClick={() => { onSignOut?.(); setOpen(false); }}
                 className="w-full flex items-center gap-2 px-3 py-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
-                <Plus size={14}/> Add new coach
-              </button>
-              <div className="divider mx-2"/>
-              <div className="px-3 pt-2 pb-1">
-                <div className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Backup</div>
-              </div>
-              <button onClick={() => { onExport?.(); setOpen(false); }}
-                className="w-full flex items-center gap-2 px-3 py-2 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
-                <ArrowUpRight size={14}/> Download backup (.json)
-              </button>
-              <button onClick={() => { fileRef.current?.click(); }}
-                className="w-full flex items-center gap-2 px-3 py-2 pb-2.5 hover-lift text-left text-sm" style={{color:"var(--ink-2)"}}>
-                <ArchiveRestore size={14}/> Restore from backup…
+                <LogOut size={14}/> Sign out
               </button>
             </div>
           )}
         </div>
       </div>
-      <input ref={fileRef} type="file" accept=".json,application/json" style={{display:"none"}}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) setConfirmImport(f);
-          e.target.value = "";
-          setOpen(false);
-        }}/>
       {showHelp && <HelpModal onClose={() => setShowHelp(false)}/>}
-      {adding && <AddCoachModal existing={coaches} onClose={() => setAdding(false)} onSave={(c) => { onAddCoach(c); setAdding(false); }}/>}
-      {archiveTarget && (
-        <ArchiveCoachModal
-          coach={archiveTarget}
-          activeCoaches={activeCoaches.filter(c => c.id !== archiveTarget.id)}
-          activeClients={clients.filter(cl => cl.coachId === archiveTarget.id && !cl.archived)}
-          onClose={() => setArchiveTarget(null)}
-          onConfirm={(resolutions, force) => {
-            const ok = onArchive?.(archiveTarget.id, resolutions, force);
-            if (ok) setArchiveTarget(null);
-          }}
-        />
-      )}
-      {confirmImport && (
-        <Modal onClose={() => setConfirmImport(null)} title="Restore from backup?">
-          <div className="space-y-3 text-sm" style={{color:"var(--ink-2)"}}>
-            <p>This will <b>replace everything currently in the app</b> — all coaches, clients, workouts, logs, exercise library, and attendance records — with the contents of:</p>
-            <div className="card p-3 mono text-xs" style={{background:"var(--paper-2)"}}>
-              {confirmImport.name} <span style={{color:"var(--muted)"}}>· {(confirmImport.size / 1024).toFixed(1)} KB</span>
-            </div>
-            <p>If you haven't backed up your current state, cancel and export first.</p>
-          </div>
-          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
-            <button onClick={() => setConfirmImport(null)} className="btn btn-ghost">Cancel</button>
-            <button onClick={() => { onImport?.(confirmImport); setConfirmImport(null); }} className="btn btn-primary">
-              <ArchiveRestore size={14}/> Restore
-            </button>
-          </div>
-        </Modal>
-      )}
     </header>
   );
 }
 
-function AddCoachModal({ existing, onClose, onSave }) {
+function AddProfileModal({ existingCoaches, onClose, onCreate }) {
   const [name, setName] = useState("");
-  const nameTaken = existing.some(c => c.name.toLowerCase() === name.trim().toLowerCase());
-  const canSave = name.trim() && !nameTaken;
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const trimmed = name.trim();
+  const tooLong = trimmed.length > 30;
+  const nameTaken = existingCoaches.some(
+    c => c.name.toLowerCase() === trimmed.toLowerCase()
+  );
+  const canSubmit = trimmed.length > 0 && !tooLong && !submitting;
+
+  const handleSubmit = async () => {
+    if (!canSubmit) return;
+    if (nameTaken) {
+      setErrorMessage("You already have a profile with that name.");
+      return;
+    }
+    setSubmitting(true);
+    setErrorMessage("");
+    try {
+      await onCreate({ name: trimmed });
+    } catch (err) {
+      const code = err?.code;
+      const message = err?.message ?? "";
+      if (code === "23505" || message.includes("coaches_user_id_name_key")) {
+        setErrorMessage("You already have a profile with that name.");
+      } else {
+        setErrorMessage("Couldn't create profile. Please try again.");
+      }
+      setSubmitting(false);
+    }
+  };
+
+  // Length check is live (drives canSubmit + inline error). Duplicate / server
+  // errors stay post-submit. Length takes display precedence so the user sees
+  // the actionable problem first if both could apply on a paste.
+  const displayedError = tooLong
+    ? "Profile name must be 30 characters or fewer."
+    : errorMessage;
+
   return (
-    <Modal onClose={onClose} title="Add a coach">
+    <Modal onClose={submitting ? () => {} : onClose} title="Add a profile">
       <div className="space-y-3">
         <p className="text-sm" style={{color:"var(--ink-2)"}}>
-          Each coach has their own isolated clients, workouts, and logs. The exercise library is shared across all coaches.
+          Each profile has its own isolated clients, workouts, and logs. The exercise library is shared across all profiles.
         </p>
         <div>
-          <label className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Coach name</label>
-          <input value={name} onChange={e => setName(e.target.value)} className="field mt-1.5" placeholder="e.g. Jordan Blake" autoFocus/>
-          {nameTaken && <div className="text-xs mt-1.5" style={{color:"var(--accent)"}}>A coach with this name already exists.</div>}
+          <label className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Profile name</label>
+          <input
+            value={name}
+            onChange={e => { setName(e.target.value); if (errorMessage) setErrorMessage(""); }}
+            onKeyDown={e => { if (e.key === "Enter") handleSubmit(); }}
+            className="field mt-1.5"
+            placeholder="e.g. Jordan Blake"
+            maxLength={30}
+            autoFocus
+            disabled={submitting}
+          />
+          {displayedError && (
+            <div className="text-xs mt-1.5" style={{color:"var(--accent)"}}>{displayedError}</div>
+          )}
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={() => canSave && onSave({ id: "coach_" + uid(""), name: name.trim() })}
-          disabled={!canSave}
-          style={!canSave ? {opacity:0.45, cursor:"not-allowed"} : {}}
-          className="btn btn-primary"><Check size={14}/> Create & switch</button>
+        <button onClick={onClose} disabled={submitting} className="btn btn-ghost">Cancel</button>
+        <button
+          onClick={handleSubmit}
+          disabled={!canSubmit}
+          style={!canSubmit ? {opacity:0.45, cursor:"not-allowed"} : {}}
+          className="btn btn-primary">
+          <Check size={14}/> {submitting ? "Creating…" : "Create & switch"}
+        </button>
       </div>
     </Modal>
   );
 }
 
 /**
- * Archive a coach. Lists every active client and forces the user to choose
- * "Archive client" or "Transfer to <other coach>" for each one. A force-archive
- * escape hatch at the bottom requires typing ARCHIVE to confirm.
+ * Cascade-archive confirmation. Lists every active client that will be archived
+ * alongside the coach. Each client row carries a placeholder "Download training
+ * history" button — disabled until the export feature ships in Finale-1.5.
  */
-function ArchiveCoachModal({ coach, activeCoaches, activeClients, onClose, onConfirm }) {
-  // Per-client resolution state: { clientId: { action, targetCoachId? } }
-  const [resolutions, setResolutions] = useState(() =>
-    Object.fromEntries(activeClients.map(cl => [cl.id, { action: null, targetCoachId: null }]))
-  );
-  const [forceMode, setForceMode] = useState(false);
-  const [forceText, setForceText] = useState("");
-
-  const setRes = (clientId, patch) =>
-    setResolutions({ ...resolutions, [clientId]: { ...resolutions[clientId], ...patch } });
-
-  const allResolved = activeClients.every(cl => {
-    const r = resolutions[cl.id];
-    return r?.action === "archive" || (r?.action === "transfer" && r.targetCoachId);
-  });
-
-  const forceConfirmed = forceText.trim().toUpperCase() === "ARCHIVE";
-
-  const canProceed = activeClients.length === 0 || allResolved || (forceMode && forceConfirmed);
-
-  const handleConfirm = () => {
-    if (!canProceed) return;
-    const list = forceMode && !allResolved
-      ? activeClients
-          .map(cl => ({ clientId: cl.id, ...resolutions[cl.id] }))
-          .filter(r => r.action === "archive" || (r.action === "transfer" && r.targetCoachId))
-      : activeClients.map(cl => ({ clientId: cl.id, ...resolutions[cl.id] }));
-    onConfirm(list, forceMode && !allResolved);
-  };
-
+function ArchiveCoachModal({ coach, activeClients, onCancel, onConfirm }) {
+  const n = activeClients.length;
   return (
-    <Modal onClose={onClose} title={`Archive ${coach.name}?`}>
+    <Modal onClose={onCancel} title={`Archive ${coach.name}?`}>
       <div className="space-y-4">
         <p className="text-sm" style={{color:"var(--ink-2)"}}>
-          Archived coaches don't appear in the main switcher and can't be assigned new clients. You can restore them later.
+          Archiving this coach will also archive {n === 1 ? "this client" : `these ${n} clients`}.
+          Their training history will be unavailable to them until the export feature ships.
         </p>
-
-        {activeClients.length === 0 ? (
-          <div className="card p-3 text-sm" style={{color:"var(--muted)"}}>
-            No active clients to reassign. Ready to archive.
-          </div>
-        ) : (
-          <div>
-            <div className="mono text-[10px] uppercase tracking-widest mb-2" style={{color:"var(--muted)"}}>
-              Resolve {activeClients.length} active client{activeClients.length === 1 ? "" : "s"}
+        <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+          {activeClients.map(cl => (
+            <div key={cl.id} className="card p-3 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium">{cl.name}</span>
+              <button disabled
+                title="Available soon"
+                style={{opacity:0.45, cursor:"not-allowed"}}
+                className="btn btn-ghost text-xs whitespace-nowrap">
+                <FileText size={13}/> Download training history
+              </button>
             </div>
-            <div className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
-              {activeClients.map(cl => {
-                const r = resolutions[cl.id];
-                return (
-                  <div key={cl.id} className="card p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium">{cl.name}</span>
-                      <div className="flex gap-1 p-0.5 rounded-lg" style={{background:"var(--paper-2)"}}>
-                        <button onClick={() => setRes(cl.id, { action: "archive", targetCoachId: null })}
-                          className="px-2.5 py-1 rounded text-[11px] font-medium mono uppercase tracking-wide"
-                          style={r?.action === "archive" ? {background:"var(--ink)", color:"var(--paper)"} : {background:"transparent", color:"var(--muted)"}}>
-                          Archive
-                        </button>
-                        <button onClick={() => setRes(cl.id, { action: "transfer" })}
-                          className="px-2.5 py-1 rounded text-[11px] font-medium mono uppercase tracking-wide"
-                          style={r?.action === "transfer" ? {background:"var(--ink)", color:"var(--paper)"} : {background:"transparent", color:"var(--muted)"}}
-                          disabled={activeCoaches.length === 0}>
-                          Transfer
-                        </button>
-                      </div>
-                    </div>
-                    {r?.action === "transfer" && (
-                      activeCoaches.length === 0 ? (
-                        <div className="text-xs" style={{color:"var(--accent)"}}>No other active coaches available. Add one first or archive instead.</div>
-                      ) : (
-                        <select value={r.targetCoachId || ""} onChange={e => setRes(cl.id, { targetCoachId: e.target.value })}
-                          className="field text-sm">
-                          <option value="">Transfer to…</option>
-                          {activeCoaches.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                      )
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {activeClients.length > 0 && !allResolved && (
-          <details className="text-xs" style={{color:"var(--muted)"}}>
-            <summary className="cursor-pointer hover-lift inline-block py-1" onClick={() => setForceMode(!forceMode)}>
-              {forceMode ? "Cancel force archive" : "Force archive without resolving all clients…"}
-            </summary>
-            {forceMode && (
-              <div className="mt-2 p-3 rounded-lg" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
-                <p className="mb-2" style={{color:"var(--ink-2)"}}>
-                  Unresolved clients will remain assigned to <b>{coach.name}</b> after archiving. They won't appear in the active client list and you'll need to handle them later. Type <b>ARCHIVE</b> to confirm.
-                </p>
-                <input value={forceText} onChange={e => setForceText(e.target.value)}
-                  placeholder="ARCHIVE" className="field text-sm tabular"/>
-              </div>
-            )}
-          </details>
-        )}
+          ))}
+        </div>
       </div>
       <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
-        <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-        <button onClick={handleConfirm} disabled={!canProceed}
-          style={!canProceed ? {opacity:0.45, cursor:"not-allowed"} : {}}
-          className="btn btn-primary">
-          <Archive size={14}/> Archive coach
+        <button onClick={onCancel} className="btn btn-ghost">Cancel</button>
+        <button onClick={onConfirm} className="btn btn-primary">
+          <Archive size={14}/> Archive coach & clients
         </button>
       </div>
     </Modal>
@@ -1334,7 +1125,7 @@ const HELP_CONTENT = [
     id: "getting-started",
     title: "Getting started",
     audience: ["coach", "client"],
-    keywords: ["intro","install","pwa","ipad","launch","first","date","navigation","calendar"],
+    keywords: ["intro","install","pwa","ipad","launch","first","date","navigation","calendar","sign-in","account","sync","reload","tab","where left off"],
     body: `## What Ledger is
 
 Ledger is a coach-centric personal training app. The coach is the primary user — planning workouts, logging sessions, tracking progress for each client. Clients have a separate, simpler view (Today / History / Log Solo / Notes).
@@ -1347,15 +1138,21 @@ Open the Ledger URL in Safari, tap the **Share** icon, then **Add to Home Screen
 
 ## First launch
 
-If this is your first time, Ledger comes pre-loaded with a small set of demo coaches and clients so you can explore. Once you start adding your own data, you can either delete the demo records or just leave them — they don't affect anything.
+The first time you open Ledger, you'll see a sign-in screen. Create an account with an email and password — this account is yours, and your data follows it to every device you sign into.
 
-If you're starting fresh on a new device, see [Restoring on a new device](#backup-restore).
+New accounts start with a blank slate: no coaches, no clients. Add your first coach from the badge in the top right, then start adding clients from the sidebar. See [Coaches](#coaches) and [Clients](#clients).
+
+If you already have an account and you're signing in on a new device — or a different browser, or after reinstalling — just sign in. Your data is already there.
 
 ## Date navigation
 
 The home screen shows a 7-day strip with today highlighted. Tap any day to switch dates. The chevron arrows step a week at a time, and the date label opens a full date picker for jumping further.
 
-"Today" is determined by your device's local timezone — it rolls over at local midnight, not UTC midnight.`
+"Today" is determined by your device's local timezone — it rolls over at local midnight, not UTC midnight.
+
+## Where you left off
+
+Reload the tab and Ledger lands you back on the screen you were last viewing — same coach, same client, same client tab. This is a per-tab convenience: a brand-new tab still opens on the dashboard, and switching coaches or signing out resets it. Scroll position and other in-view details aren't restored — just the top-level location.`
   },
 
   {
@@ -1363,11 +1160,13 @@ The home screen shows a 7-day strip with today highlighted. Tap any day to switc
     title: "Coaches",
     audience: ["coach"],
     keywords: ["coach","switch","add","archive","transfer","multi"],
-    body: `Ledger supports multiple coaches on a single device. Each coach has their own isolated clients, workouts, logs, and attendance. The exercise library is **shared** across all coaches.
+    body: `Ledger supports multiple coaches under a single account — useful if you wear more than one hat. Each coach has their own isolated clients, workouts, logs, and attendance; switching between them is one tap. The exercise library is **shared** across all coaches on your account.
+
+Your account is capped at **5 active coaches**. Archived coaches don't count against the cap.
 
 ## Adding a coach
 
-Tap your coach badge in the top right, then **Add new coach**. Pick a name. The new coach is created and you're switched to them.
+Tap your coach badge in the top right, then **Add a profile**. Pick a name. The new coach is created and you're switched to them.
 
 ## Switching coaches
 
@@ -1450,7 +1249,7 @@ When building a workout for a specific client, this toggle hides exercises that 
 
 ## Adding a custom exercise
 
-In Exercise Library, tap **+ New exercise**. Fill in the name, movement category, target muscles, equipment, difficulty, default sets/reps/rest, and any tags or contraindications. Custom exercises live in the same shared library as the seeded ones.
+In Exercise Library, tap **+ New exercise**. Fill in the name, movement category, target muscles, equipment, difficulty, default sets/reps/rest, and any tags or contraindications. Custom exercises live in the same shared library as the seeded ones — every coach on your account can see and use them.
 
 ## Why duplicate names are blocked
 
@@ -1461,10 +1260,12 @@ Two exercises with the same name break logging and progress tracking. Ledger ref
     id: "building-workouts",
     title: "Building workouts",
     audience: ["coach"],
-    keywords: ["workout","build","blocks","sets","reps","weight","rest","template","kg","lb","balance"],
+    keywords: ["workout","build","blocks","sets","reps","weight","rest","template","kg","lb","balance","time","duration","hold","isometric","seconds","unilateral","side","bilateral","superset","group","pair","ungroup","draft","autosave","resume","discard","unsaved","notes"],
     body: `## Creating a workout
 
 From a client's **Program** tab, tap **+ Build new** to start from scratch or **From template** to start from an existing template.
+
+Leave the name blank and Ledger auto-names the workout from its template, client, and date when you save (templates still need a name you type).
 
 ## Blocks
 
@@ -1481,6 +1282,39 @@ Drag blocks to reorder. The arrows on the left side of each block also move it u
 ## Per-block lb/kg toggle
 
 Each block has its own little **lb / kg** toggle next to the delete button. Toggling it changes the display unit — the canonical weight is preserved, so flipping a 100 lb block to kg shows 45.4 kg, the same load. Default is lb.
+
+## Reps vs time-based work
+
+Each block has a **Reps / Time** toggle. Most exercises are reps-based and use the toggle's default. Switch to **Time** for isometric or duration-based work — planks, wall sits, dead hangs, breath holds — and the **Reps** field is replaced by a **Duration (s)** field. Planned and logged lines on time-based blocks show a small **Hold** chip so they stand out at a glance.
+
+The toggle is per-block, not per-set: all sets of an exercise share the same work type.
+
+## Unilateral / single-side work
+
+Each block has a **Bilateral / Unilateral** selector. **Bilateral** is the default (both sides working together) and fits most exercises. **Unilateral** covers anything worked one side at a time — split squats, single-arm rows, alternating lunges, step-ups.
+
+The set count never changes based on the selector. **3 sets is 3 rows**, whether the exercise is bilateral or unilateral. If a unilateral exercise alternates (lunges) or runs all-one-side-then-the-other (split squats), that's an execution detail — capture it in the exercise notes if it matters.
+
+Unilateral blocks show a small **Unilateral** chip on the planned and logged lines.
+
+## Supersets
+
+To pair two blocks as a superset, tap **Group with next** on the first block. The two blocks combine into a single warm-tinted band labeled **Superset**. The same wrapper carries through to the workout view, the client's program, and history, so paired exercises always read as a unit.
+
+To break the pair, tap **Ungroup** in the group's header. Removing one half of a superset — deleting the block or dropping it from the workout — automatically ungroups the partner.
+
+Supersets are pairs only. Three or more blocks can't be grouped into a single set.
+
+## Resuming an unfinished draft
+
+If you start building a new workout and step away — switch tabs, get a call, accidentally close the browser — Ledger keeps a local draft of what you'd entered. The next time you tap **+ Build new**, a prompt appears: **Resume unsaved workout?**, with **Resume** to pick up where you left off, or **Discard** to start clean.
+
+A few honest caveats:
+
+- One draft per coach. Starting another new workout while a draft exists is what triggers the Resume prompt.
+- Editing an existing workout or applying a template doesn't show the prompt — those flows don't go through the draft system.
+- If an exercise in the draft has since been removed from the library, or its client has been archived, Ledger drops those pieces on Resume and tells you what changed.
+- The draft is cleared once you save the workout out of the builder, or when you pick Discard.
 
 ## Balance suggestion
 
@@ -1525,36 +1359,48 @@ Open Templates from the sidebar. Tap a template to open it in the builder. Save 
     id: "logging",
     title: "Logging sessions",
     audience: ["coach", "client"],
-    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit"],
-    body: `## The single-entry-per-exercise model
+    keywords: ["log","session","attendance","present","missed","cancelled","modified","per-set","undo","edit","hold","duration","time","as prescribed","complete","reopen","lock","distance","unilateral","side"],
+    body: `## How logging works
 
-Ledger uses **one log per exercise**, not one log per set. Most of the time, all sets of an exercise are the same — same weight, same reps. Logging a single entry covers the whole exercise.
+Ledger logs **every set**, not one entry per exercise. Each exercise on a session shows a log card with its prescription — sets, reps (or hold time, or distance), weight, rest — and two buttons: **As prescribed** and **Modified**.
 
-When sets diverge — different weights, dropped reps, an injury mid-set — check the **Modified** box on the log card. The card expands to show one row per set, each editable individually.
+You can add a note (form, RPE, pain — anything worth remembering) in the field on the card before logging. It's saved with the entry either way.
 
-This keeps logging fast for the common case while still letting you record exactly what happened when it matters.
+## As prescribed — the fast path
 
-## Attendance
+If the client hit the prescription, tap **As prescribed**. One tap logs every set exactly as written and the card flips to a green summary. This is the common case, and it's meant to be instant.
 
-Each scheduled workout has three states:
+## Modified — per-set entry
 
-- **Present** — client showed up
-- **Missed** — client didn't show
-- **Cancelled** — session was cancelled (different from missed)
+If anything diverged — a heavier top set, dropped reps, an injury mid-set — tap **Modified**. The card expands to one row per prescribed set, each with its own value and weight. Adjust any row, tap **+ Add set** to add one, or the small **×** on a row to drop it, then tap **Save modified**. Modified logs carry a **Modified** chip on their summary.
 
-Attendance is separate from logging. You can mark a session present without logging exercises (useful for technique-only sessions).
+The value field matches the exercise's type automatically:
 
-## Logging "as planned"
+- **Reps** exercises ask for reps
+- **Hold** (time) exercises ask for seconds
+- **Distance** exercises ask for the distance, in the unit the exercise uses
 
-If the client did the workout exactly as written, just tap **Mark done** on each block. Fill in actual sets / reps / weight if anything differed.
-
-## Logging "Modified"
-
-Tap **Modified** to expand to per-set entry. Each set has its own reps and weight inputs. Add or remove rows as needed.
+For **unilateral** exercises, each set splits into separate **L** and **R** rows, so you can record the two sides independently.
 
 ## Editing or undoing a log
 
-A logged exercise shows as a green card. Tap the **×** to undo the log entirely. To edit details, undo first, then re-log.`
+A logged exercise shows as a green summary card with an **×** in the corner. Tap the **×** to undo the log. To change what was recorded, undo it and log again — the card returns to its **As prescribed** / **Modified** state.
+
+## Attendance
+
+Attendance is tracked separately from logging, with three states:
+
+- **Present** — the client showed up
+- **Missed** — the client didn't show
+- **Cancelled** — the session was called off (distinct from a no-show)
+
+You can mark attendance without logging a single set — handy for technique-only or check-in sessions. Once a session is **completed**, the attendance buttons lock (see below).
+
+## Completing & reopening a session
+
+When a session is done, tap **Complete session** at the bottom. Ledger asks you to confirm, then **locks the session**: attendance and every logged set are frozen, the logged cards dim, and the **Edit** button disappears. This keeps finished sessions from being changed by accident.
+
+To make changes again, tap **Mark as in progress** at the bottom of a completed session and confirm. Attendance and the logged sets unlock, and you can edit as normal.`
   },
 
   {
@@ -1598,65 +1444,35 @@ Bodyweight appears in both the Progress tab (as the bodyweight chart) and the Me
     id: "client-view",
     title: "Client-facing view",
     audience: ["coach", "client"],
-    keywords: ["client view","today","history","log solo","notes","self-directed"],
-    body: `Coaches can switch into a client-facing view to see what the client sees, or to hand the iPad to a client mid-session.
+    keywords: ["client view","today","history","log solo","notes","self-directed","view as client","coach preview","exit preview","client logs this session","coach-logged","client-logged","independent session","start logging","finish session","add exercise"],
+    body: `Ledger has a client-facing view — the four tabs a client uses day to day. For now it's a **coach preview**: you open it from a client's profile to see exactly what they'd see. (Client logins arrive in a later phase; until then, this is your window into the experience you're building.)
 
-## Switching to client view
+## Opening the client view
 
-From a client's profile, tap **View as client** in the Profile tab. To exit, tap the back arrow.
+From a client's profile, tap **View as client** (in the "See what … sees" card near the bottom). A **Coach preview** banner sits across the top so you always know you're previewing. Tap **Exit preview** to return.
 
 ## The four client tabs
 
-- **Today** — the workout scheduled for today, ready to log
-- **History** — past sessions with expandable detail
-- **Log solo** — start a self-directed workout (no scheduled plan; client picks exercises and logs as they go)
-- **Notes** — free-form notes the client can read or add to
+- **Today** — the next scheduled workout, ready to log or preview
+- **History** — past sessions, each expandable for detail
+- **Log Solo** — start an independent workout that isn't on the plan
+- **Notes** — free-form notes the client can read and add to
 
-## Self-directed sessions
+## Today: who logs the session
 
-If a client wants to do a workout that wasn't planned, **Log solo** lets them build one on the fly. Pick exercises from the library, set sets/reps/weight as you go, and log normally. The session appears in history flagged as self-directed.`
-  },
+Each workout you build is one of two kinds, controlled by the **Client logs this session** checkbox in the builder:
 
-  {
-    id: "backup-restore",
-    title: "Backup & restore",
-    audience: ["coach"],
-    keywords: ["backup","restore","export","import","json","new device","data loss","schema","migration"],
-    body: `Ledger stores all data in your device's localStorage. There's no cloud sync — moving between devices, or recovering after data loss, requires manual backup files.
+- **Coach-logged** (default, checkbox off) — the client's Today shows the workout as a read-only preview, with a note that you'll log their sets live during the session.
+- **Client-logged** (checkbox on) — the client's Today shows live log cards, and the client logs their own sets using the same **As prescribed** / **Modified** cards, right on the Today tab.
 
-## What's in a backup
+## Log Solo: independent sessions
 
-A backup is a single JSON file containing:
+**Log Solo** is for a workout the client does on their own, outside your plan. It works in two steps:
 
-- All coaches (active and archived)
-- All clients (across all coaches)
-- The exercise library (shared, including custom exercises)
-- All planned workouts and templates
-- All logs and attendance records
+1. **Plan** — give the session an optional name, then tap **Add exercise** to build a list from the library. Nothing is saved yet; remove any exercise with the **×**.
+2. **Start logging** — this creates the session and switches to logging. Log each exercise with the usual cards. Need something you didn't plan? **Add exercise** mid-session adds it without touching what's already logged. Tap **Finish session** when you're done.
 
-Display preferences (per-block units, etc.) are included.
-
-## When to back up
-
-- Before any major change to your data
-- Before installing app updates
-- Once a week as routine practice
-- Before switching devices
-
-## Creating a backup
-
-Coach badge menu → **Download backup (.json)**. The file downloads with today's date in the filename: \`ledger-backup-YYYY-MM-DD.json\`.
-
-## Restoring on a new device
-
-1. Install Ledger on the new device.
-2. Coach badge menu → **Restore from backup…**
-3. Select the JSON file.
-4. Confirm the warning. **Restore replaces everything in the app** — coaches, clients, workouts, logs, library.
-
-## Schema versions
-
-Each backup carries a \`schemaVersion\` number. When the app updates and the data shape changes, older backups are migrated forward automatically on import. Backups from newer versions can't be imported into older app builds.`
+Solo sessions are saved to the client's history flagged as a **Solo** session.`
   },
 
   {
@@ -1680,32 +1496,46 @@ Toggling lb ↔ kg on a block doesn't change the actual weight — only how it's
 
 ## App stuck on "loading…"
 
-The load screen showing for more than a few seconds usually means localStorage is corrupted or unreadable. Try:
+The load screen showing for more than a few seconds usually points to a connection or sign-in issue, not lost data. Try:
 
-1. Closing and reopening the app
-2. If that fails, your most recent backup is your fallback — see [Backup & restore](#backup-restore)
+1. Check your connection — Ledger needs to reach the server to load your data
+2. Close and reopen the app
+3. Sign out and back in (coach badge → **Sign out**)
 
-## Lost data
+If the problem persists, note any error message and reach out. Your data is safe on the server, even if the app can't reach it right now.
 
-There's no recovery short of a backup. localStorage is per-device, per-browser, per-domain. Clearing browser data, uninstalling the PWA, or factory-resetting the device wipes Ledger data with it. Back up regularly.`
+## "Did I lose my data?"
+
+Your data is stored on the server, not on this device. Clearing browser data, uninstalling the PWA, or switching to a different device won't wipe anything — sign in again and your data will be there.
+
+If something genuinely seems missing (a client or workout you remember creating that isn't showing up), check the archived section of the relevant list first — archived items collapse out of view but aren't deleted. If it's still missing after that, reach out.`
   },
 
   {
     id: "about",
     title: "About",
     audience: ["coach", "client"],
-    keywords: ["about","privacy","storage","developer","version"],
+    keywords: ["about","privacy","storage","sync","server","supabase","units"],
     body: `## Storage model
 
-All data lives in your device's localStorage. Ledger does not send data to any server. There is no account system, no cloud sync, no analytics, no telemetry.
+Ledger uses a managed Postgres database (Supabase) on the server side. Your data is stored there and synced to every device where you're signed in. Sign-in uses email and password.
+
+A few small things still live locally on your device, for convenience:
+
+- **In-progress workout builder drafts** — so you don't lose work if the tab is suspended or the browser closes mid-edit.
+- **Last-viewed screen, per coach** — so a reload lands you where you left off instead of dropping you back on the dashboard.
+
+Everything else lives on the server.
 
 ## Privacy
 
-Your client data — names, goals, injuries, measurements, logs — never leaves your device unless you export a backup file and share it yourself.
+Your client data — names, goals, injuries, measurements, logs — is stored on the server tied to your account. Row-level security policies enforce that you can only read and write your own account's data; other accounts can't see it.
 
-## Schema version
+Ledger doesn't run analytics or behavior telemetry, and your data isn't shared with third parties.
 
-The current data schema version is 7. The app handles migrations automatically when loading older data. Canonical storage is lb (weight) and in (length); display units (lb/kg, in/cm) are a per-input toggle.
+## Units
+
+Canonical storage is lb (weight) and in (length); display units (lb/kg, in/cm) are a per-input toggle. Toggling units changes how a value is shown, never the underlying number.
 
 ## Credits
 
@@ -1944,7 +1774,17 @@ function Sidebar({ view, setView, clients, selectedClientId, onSelectClient, onA
           <div className="px-3 py-4 text-sm text-center" style={{color:"var(--muted)"}}>No matches.</div>
         )}
         {active.length === 0 && (
-          <div className="px-3 py-4 text-sm text-center" style={{color:"var(--muted)"}}>No active clients.</div>
+          archived.length === 0 ? (
+            <div className="px-3 py-6 text-center">
+              <div className="text-sm font-medium mb-1" style={{color:"var(--ink)"}}>No clients yet</div>
+              <div className="text-xs mb-3" style={{color:"var(--muted)"}}>Add your first client to start building and logging workouts.</div>
+              <button onClick={() => setAdding(true)} className="btn btn-primary btn-sm justify-center w-full">
+                <Plus size={13}/> Add your first client
+              </button>
+            </div>
+          ) : (
+            <div className="px-3 py-4 text-sm text-center" style={{color:"var(--muted)"}}>No active clients.</div>
+          )
         )}
 
         {archived.length > 0 && (
@@ -2192,10 +2032,11 @@ function TodaySessionCard({ workout, clients, logs, attendance, onOpen }) {
   const c = clients.find(cl => cl.id === workout.clientId);
   const workoutLogs = logs.filter(l => l.workoutId === workout.id);
   const att = attendance.find(a => a.workoutId === workout.id);
-  const completed = workoutLogs.length > 0;
+  const isCompleted = !!workout.completedAt;
+  const isInProgress = !isCompleted && workoutLogs.length > 0;
   return (
     <button onClick={() => c && onOpen(c.id)} className="w-full card p-5 hover-lift text-left"
-      style={{borderColor: completed ? "var(--good)" : "var(--line-2)"}}>
+      style={{borderColor: isCompleted ? "var(--good)" : "var(--line-2)"}}>
       <div className="flex items-center gap-4">
         <div className="w-11 h-11 rounded-full flex items-center justify-center display text-sm font-medium flex-shrink-0"
           style={{background:"var(--paper-2)", border:"1px solid var(--line)"}}>{c ? initials(c.name) : "—"}</div>
@@ -2210,7 +2051,13 @@ function TodaySessionCard({ workout, clients, logs, attendance, onOpen }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {completed ? <div className="chip" style={{background:"#E4F0E8",color:"var(--good)",borderColor:"#BFDCC9"}}><Check size={12}/> In progress</div> : <span className="chip">Ready</span>}
+          {isCompleted ? (
+            <div className="chip" style={{background:"#E4F0E8",color:"var(--good)",borderColor:"#BFDCC9"}}><Check size={12}/> Completed</div>
+          ) : isInProgress ? (
+            <div className="chip" style={{background:"#FFF4E0",color:"var(--warn)",borderColor:"#F0DDB4"}}>In progress</div>
+          ) : (
+            <span className="chip">Ready</span>
+          )}
           <ArrowRight size={16}/>
         </div>
       </div>
@@ -2218,13 +2065,15 @@ function TodaySessionCard({ workout, clients, logs, attendance, onOpen }) {
   );
 }
 
-function RecentActivity() { return null; } // deprecated — kept as empty stub to avoid stale references
-
 /* ============================================================
    CLIENT DETAIL
    ============================================================ */
-function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onViewAsClient }) {
-  const [tab, setTab] = useState("program"); // program | history | profile | progress
+function ClientDetail({ client, tab: tabProp, onTabChange, workouts, exercises, logs, attendance, unitPref = "lb", onUpdate, onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout, onViewAsClient }) {
+  // Controlled when a parent passes `tab`/`onTabChange` (CoachApp persists it
+  // across reloads); falls back to local state for any other caller.
+  const [localTab, setLocalTab] = useState("program"); // program | history | profile | progress | measurements
+  const tab = tabProp ?? localTab;
+  const setTab = onTabChange ?? setLocalTab;
   const clientWorkouts = workouts.filter(w => w.clientId === client.id && !w.isTemplate);
   const clientLogs = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId));
 
@@ -2250,7 +2099,7 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
             </button>
           </div>
         )}
-        <ClientHeader client={client} unitPref={unitPref}/>
+        <ClientHeader client={client} unitPref={unitPref} completedCount={clientWorkouts.filter(w => w.completedAt).length}/>
         <div className="flex items-center gap-5 mb-6 mt-6" style={{borderBottom:"1px solid var(--line)"}}>
           {[
             ["program","Program"],
@@ -2271,7 +2120,8 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
         {tab === "program" && (
           <ProgramTab client={client} clientWorkouts={clientWorkouts} exercises={exercises} workouts={workouts}
             logs={logs} attendance={attendance} unitPref={unitPref}
-            onBuild={onBuild} onApplyTemplate={onApplyTemplate} onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog}/>
+            onBuild={onBuild} onApplyTemplate={onApplyTemplate} onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog}
+            onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} onDeleteWorkout={onDeleteWorkout}/>
         )}
         {tab === "history" && (
           <HistoryTab client={client} clientWorkouts={clientWorkouts} exercises={exercises} logs={logs} attendance={attendance} unitPref={unitPref}/>
@@ -2280,7 +2130,7 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
           <ProgressTab client={client} logs={clientLogs} exercises={exercises} unitPref={unitPref} onUpdate={onUpdate}/>
         )}
         {tab === "measurements" && (
-          <MeasurementsTab client={client} onUpdate={onUpdate}/>
+          <MeasurementsTab client={client}/>
         )}
         {tab === "profile" && (
           <ProfileTab client={client} onUpdate={onUpdate} onViewAsClient={onViewAsClient}/>
@@ -2290,9 +2140,14 @@ function ClientDetail({ client, workouts, exercises, logs, attendance, unitPref 
   );
 }
 
-function ClientHeader({ client, unitPref = "lb" }) {
+function ClientHeader({ client, unitPref = "lb", completedCount = 0 }) {
   const flags = client.injuries || [];
-  const latestBW = client.bodyweight?.slice(-1)[0];
+  const { measurements } = useMeasurements(client.id);
+  const latestBW = useMemo(() => {
+    const weights = measurements.filter(m => m.type === "weight");
+    if (weights.length === 0) return null;
+    return weights.reduce((a, b) => a.date > b.date ? a : b);
+  }, [measurements]);
   return (
     <div className="flex items-start gap-5">
       <div className="w-16 h-16 rounded-2xl flex items-center justify-center display text-xl font-medium flex-shrink-0"
@@ -2305,7 +2160,8 @@ function ClientHeader({ client, unitPref = "lb" }) {
         <div className="flex items-center gap-2 mt-3 flex-wrap">
           <span className="chip">{client.level}</span>
           {client.age && <span className="chip">age {client.age}</span>}
-          {latestBW && <span className="chip tabular">{toDisplay(latestBW.lb, unitPref)}{unitLabel(unitPref)}</span>}
+          {latestBW && <span className="chip tabular">{toDisplay(latestBW.valueLb, unitPref)}{unitLabel(unitPref)}</span>}
+          {completedCount > 0 && <span className="chip tabular">{completedCount} completed</span>}
           {flags.map((f,i) => <span key={i} className="chip chip-warn"><AlertTriangle size={11}/> {f}</span>)}
         </div>
         <div className="mt-4 text-sm max-w-[580px]" style={{color:"var(--ink-2)"}}>
@@ -2318,12 +2174,17 @@ function ClientHeader({ client, unitPref = "lb" }) {
 }
 
 /* -----------------------------  PROGRAM TAB  ----------------------------- */
-function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attendance, unitPref = "lb", onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog }) {
+function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attendance, unitPref = "lb", onBuild, onApplyTemplate, onLog, onAttendance, onDeleteLog, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout }) {
   const t = today();
   const upcoming = clientWorkouts.filter(w => w.date >= t).sort((a,b) => a.date.localeCompare(b.date));
   const past = clientWorkouts.filter(w => w.date < t).sort((a,b) => b.date.localeCompare(a.date));
   const [openId, setOpenId] = useState(upcoming[0]?.id || null);
   const [pickingTemplate, setPickingTemplate] = useState(false);
+
+  const handleDeleteWorkout = async (id) => {
+    setOpenId(null);
+    await onDeleteWorkout(id);
+  };
 
   const templates = workouts.filter(w => w.isTemplate);
 
@@ -2345,7 +2206,8 @@ function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attenda
           {upcoming.map(w => (
             <WorkoutRow key={w.id} workout={w} exercises={exercises} logs={logs} attendance={attendance} client={client} unitPref={unitPref}
               open={openId === w.id} onToggle={() => setOpenId(openId === w.id ? null : w.id)}
-              onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}/>
+              onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}
+              onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} onDeleteWorkout={handleDeleteWorkout}/>
           ))}
           {past.length > 0 && (
             <>
@@ -2353,7 +2215,8 @@ function ProgramTab({ client, clientWorkouts, exercises, workouts, logs, attenda
               {past.slice(0, 10).map(w => (
                 <WorkoutRow key={w.id} workout={w} exercises={exercises} logs={logs} attendance={attendance} client={client} unitPref={unitPref}
                   open={openId === w.id} onToggle={() => setOpenId(openId === w.id ? null : w.id)}
-                  onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})} past/>
+                  onLog={onLog} onAttendance={onAttendance} onDeleteLog={onDeleteLog} onEdit={() => onBuild({workoutId: w.id, date: w.date})}
+                  onCompleteWorkout={onCompleteWorkout} onUncompleteWorkout={onUncompleteWorkout} onDeleteWorkout={handleDeleteWorkout} past/>
               ))}
             </>
           )}
@@ -2454,9 +2317,15 @@ function TemplatePickerModal({ templates, exercises, onClose, onApply }) {
   );
 }
 
-function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "lb", open, onToggle, onLog, onAttendance, onDeleteLog, onEdit, past }) {
+function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "lb", open, onToggle, onLog, onAttendance, onDeleteLog, onEdit, onCompleteWorkout, onUncompleteWorkout, onDeleteWorkout, past }) {
   const workoutLogs = logs.filter(l => l.workoutId === workout.id);
   const att = attendance.find(a => a.workoutId === workout.id);
+  const isCompleted = !!workout.completedAt;
+  const isInProgress = !isCompleted && workoutLogs.length > 0;
+  const isReady = !isCompleted && !isInProgress;
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmComplete, setConfirmComplete] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
   return (
     <div className="card">
       <button onClick={onToggle} className="w-full flex items-center gap-4 p-4 text-left">
@@ -2483,29 +2352,123 @@ function WorkoutRow({ workout, exercises, logs, attendance, client, unitPref = "
           <div className="flex items-center gap-2 mb-4">
             <span className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Attendance</span>
             {["present","missed","cancelled"].map(s => (
-              <button key={s} onClick={() => onAttendance({ workoutId: workout.id, status: s, date: workout.date })}
-                className="btn btn-sm" style={att?.status === s
+              <button key={s} disabled={isCompleted} onClick={() => onAttendance({ workoutId: workout.id, status: s, date: workout.date })}
+                className="btn btn-sm" style={{...(att?.status === s
                   ? {background:"var(--ink)", color:"var(--paper)", borderColor:"var(--ink)"}
-                  : {background:"#fff", border:"1px solid var(--line)"}}>
+                  : {background:"#fff", border:"1px solid var(--line)"}), ...(isCompleted ? {opacity:0.5, cursor:"not-allowed"} : {})}}>
                 {s}
               </button>
             ))}
             <div className="flex-1"/>
-            <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>
+            {!isCompleted && <button onClick={onEdit} className="btn btn-ghost btn-sm"><Edit3 size={12}/> Edit</button>}
+            {isReady && onDeleteWorkout && (
+              <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost btn-sm" style={{color:"var(--danger)"}}>
+                <Trash2 size={12}/> Delete
+              </button>
+            )}
           </div>
-          <div className="space-y-2">
-            {workout.blocks.map((b, i) => {
+          {isCompleted && (
+            <div className="mb-3 text-[11px] mono uppercase tracking-wider" style={{color:"var(--muted)"}}>
+              Locked — tap "Mark as in progress" below to edit
+            </div>
+          )}
+          <div className="space-y-2" style={isCompleted ? {pointerEvents:"none", opacity:0.6} : undefined}>
+            {groupRenderItems(workout.blocks).map((item, idx) => {
+              if (item.type === 'group') {
+                const [b1, b2] = item.blocks;
+                const ex1 = exercises.find(e => e.id === b1.exId);
+                const ex2 = exercises.find(e => e.id === b2.exId);
+                const log1 = workoutLogs.find(l => l.blockId === b1._id);
+                const log2 = workoutLogs.find(l => l.blockId === b2._id);
+                const bothDone = !!log1 && !!log2;
+                return (
+                  <div key={`g-${b1.groupId}`} className="rounded-2xl p-3"
+                    style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                    <div className="flex items-center justify-between px-1 pb-2">
+                      <SupersetChip/>
+                      {bothDone && (
+                        <span className="mono text-[10px] uppercase tracking-wider flex items-center gap-1" style={{color:"var(--good)"}}>
+                          <Check size={11} strokeWidth={3}/> Both done
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-2">
+                      <ExerciseBlock block={b1} ex={ex1} blockLog={log1}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b1._id, exId: b1.exId, date: workout.date})}
+                        onDeleteLog={onDeleteLog}/>
+                      <ExerciseBlock block={b2} ex={ex2} blockLog={log2}
+                        onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b2._id, exId: b2.exId, date: workout.date})}
+                        onDeleteLog={onDeleteLog}/>
+                    </div>
+                  </div>
+                );
+              }
+              const b = item.block;
               const ex = exercises.find(e => e.id === b.exId);
-              const blockLog = workoutLogs.find(l => l.exId === b.exId);
+              const blockLog = workoutLogs.find(l => l.blockId === b._id);
               return (
-                <ExerciseBlock key={i} block={b} ex={ex} blockLog={blockLog}
-                  onLog={(log) => onLog({...log, workoutId: workout.id, exId: b.exId, date: workout.date})}
+                <ExerciseBlock key={`b-${b._id ?? b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
+                  onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b._id, exId: b.exId, date: workout.date})}
                   onDeleteLog={onDeleteLog}
                 />
               );
             })}
           </div>
+          {workout.completedAt ? (
+            <div className="mt-4 flex justify-center">
+              <button
+                className="text-xs underline"
+                style={{color:"var(--muted)"}}
+                onClick={() => setConfirmReopen(true)}>
+                Mark as in progress
+              </button>
+            </div>
+          ) : (
+            <button
+              className="btn btn-primary w-full mt-4"
+              onClick={() => setConfirmComplete(true)}>
+              <Check size={14}/> Complete session
+            </button>
+          )}
         </div>
+      )}
+      {confirmReopen && (
+        <Modal onClose={() => setConfirmReopen(false)} title="Reopen this session?">
+          <p className="text-sm" style={{color:"var(--ink-2)"}}>
+            This unlocks attendance and the logged sets for <b>{prettyDate(workout.date)}</b> so you can edit them again.
+          </p>
+          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
+            <button onClick={() => setConfirmReopen(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={async () => { setConfirmReopen(false); await onUncompleteWorkout(workout.id); }} className="btn btn-primary">Reopen</button>
+          </div>
+        </Modal>
+      )}
+      {confirmComplete && (
+        <Modal onClose={() => setConfirmComplete(false)} title="Complete this session?">
+          <p className="text-sm" style={{color:"var(--ink-2)"}}>
+            Completing locks attendance and the logged sets for <b>{prettyDate(workout.date)}</b>. You can reopen it later with <b>Mark as in progress</b>.
+          </p>
+          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
+            <button onClick={() => setConfirmComplete(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={async () => { setConfirmComplete(false); await onCompleteWorkout(workout.id); }} className="btn btn-primary"><Check size={14}/> Complete</button>
+          </div>
+        </Modal>
+      )}
+      {confirmDelete && (
+        <Modal onClose={() => setConfirmDelete(false)} title="Delete this workout?">
+          <p className="text-sm" style={{color:"var(--ink-2)"}}>
+            Delete workout for <b>{client?.name}</b> on <b>{prettyDate(workout.date)}</b>? This cannot be undone.
+          </p>
+          <div className="flex justify-end gap-2 mt-6 pt-4" style={{borderTop:"1px solid var(--line-2)"}}>
+            <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost">Cancel</button>
+            <button
+              onClick={async () => { setConfirmDelete(false); await onDeleteWorkout(workout.id); }}
+              className="btn btn-primary"
+              style={{background:"var(--danger)", borderColor:"var(--danger)"}}>
+              <Trash2 size={13}/> Delete workout
+            </button>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -2525,11 +2488,28 @@ function ExerciseBlock({ block, ex, blockLog, onLog, onDeleteLog }) {
   );
 }
 
-/** Compact display of a completed exercise */
+/** Compact display of a completed exercise (renders from the per-set log.sets) */
 function LoggedExerciseCard({ block, ex, log, onDelete }) {
-  const [showDetails, setShowDetails] = useState(false);
   const unit = log.unit || block?.unit || "lb";
-  const actualW = log.actualWeight != null ? toDisplay(log.actualWeight, unit) : null;
+  const workType = block?.work_type || "reps";
+  const isTime = workType === "time";
+  const isDistance = workType === "distance";
+  const distanceUnit = block?.distanceUnit || "m";
+  const sets = log.sets || [];
+
+  // One concrete set row -> "[L/R ]value[ @ weight]". side is only shown
+  // when it isn't bilateral (i.e. for expanded unilateral left/right rows).
+  const fmtSet = (s) => {
+    const sidePfx = s.side === "left" ? "L " : s.side === "right" ? "R " : "";
+    const w = s.weightLb != null ? ` @ ${toDisplay(s.weightLb, unit)}${unitLabel(unit)}` : "";
+    let core;
+    if (isTime) core = `${s.durationSeconds ?? "—"}s`;
+    else if (isDistance) core = `${convertFromMeters(s.distanceM, distanceUnit) ?? "—"}${distanceUnit}`;
+    else core = `${s.reps ?? "—"}`;
+    return `${sidePfx}${core}${w}`;
+  };
+
+  const summary = sets.length ? sets.map(fmtSet).join(" · ") : "logged";
 
   return (
     <div className="rounded-xl p-4 grow-in" style={{background:"#fff", border:"1px solid var(--good)"}}>
@@ -2540,14 +2520,12 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-[15px]">{ex.name}</span>
-            {log.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+            <SideChip side={block?.side}/>
+            <WorkTypeChip workType={workType}/>
+            {log.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
           </div>
           <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
-            {log.mode === "modified" && log.perSet ? (
-              log.perSet.map(s => `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`).join(" · ")
-            ) : (
-              `${log.actualSets ?? block.sets} × ${log.actualReps ?? block.reps}${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-            )}
+            {summary}
           </div>
           {log.notes && <div className="text-[12px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
         </div>
@@ -2559,174 +2537,364 @@ function LoggedExerciseCard({ block, ex, log, onDelete }) {
   );
 }
 
-/** Pre-filled log card — one-tap "Mark done" with optional Modified expansion */
+/** Pre-filled log card — one-tap "As prescribed" (fast path) or a per-set "Modified" path */
 function LogCard({ block, ex, onLog }) {
   const unit = block.unit || "lb";
-  const [actualSets, setActualSets] = useState(block.sets);
-  const [actualReps, setActualReps] = useState(block.reps);
-  const [actualWeight, setActualWeight] = useState(block.weight != null ? toDisplay(block.weight, unit) : "");
-  const [modified, setModified] = useState(false);
+  const workType = block.work_type || "reps";
+  const isTime = workType === "time";
+  const isDistance = workType === "distance";
+  const isUnilateral = block.side === "unilateral";
+  const distanceUnit = block.distanceUnit || "m";
+  const [editing, setEditing] = useState(false);
   const [perSet, setPerSet] = useState([]);
   const [notes, setNotes] = useState("");
 
-  // When "Modified" toggles on, initialize perSet rows from the plan
-  const toggleModified = () => {
-    if (!modified) {
-      const rows = [];
-      const nSets = Number(block.sets) || 1;
-      for (let i = 0; i < nSets; i++) {
-        rows.push({ reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" });
-      }
-      setPerSet(rows);
-    }
-    setModified(!modified);
+  const plannedW = block.weight != null ? toDisplay(block.weight, unit) : null;
+  const weightLbOf = (displayVal) =>
+    displayVal === "" || displayVal == null ? null : fromDisplay(displayVal, unit);
+
+  // Fast path only: mirror the prescription onto both sides. The Modified
+  // path builds left/right from independent inputs (see saveModified).
+  const wrapSide = (base) => isUnilateral ? { left: base, right: { ...base } } : base;
+
+  const emit = (modified, sets) => {
+    onLog({
+      blockId: block._id,
+      source: "coach",
+      unit,
+      modified,
+      prescriptionSide: block.side,
+      notes,
+      sets,
+    });
+  };
+
+  // Fast path: log exactly the prescription, modified = false. Handles
+  // all three work types (reps / time / distance).
+  const logAsPrescribed = () => {
+    const n = Number(block.sets) || 1;
+    const base = {
+      reps: workType === "reps" ? block.reps : null,
+      durationSeconds: workType === "time" ? block.durationSeconds : null,
+      distanceM: workType === "distance" ? convertToMeters(block.distance, block.distanceUnit) : null,
+      weightLb: block.weight != null ? fromDisplay(block.weight, unit) : null,
+    };
+    const sets = [];
+    for (let i = 0; i < n; i++) sets.push(wrapSide({ ...base }));
+    emit(false, sets);
+  };
+
+  // Modified path: per-set form. Each "side object" holds a work-type
+  // value (reps / seconds / distance display) plus its weight; a row is a
+  // flat side object for bilateral, or { left, right } for unilateral.
+  const seedSide = () => ({
+    value: isTime ? (block.durationSeconds ?? "")
+         : isDistance ? (block.distance ?? "")
+         : (block.reps ?? ""),
+    weight: block.weight != null ? toDisplay(block.weight, unit) : "",
+  });
+  const seedRow = () => isUnilateral ? { left: seedSide(), right: seedSide() } : seedSide();
+
+  const startModified = () => {
+    const rows = [];
+    const n = Number(block.sets) || 1;
+    for (let i = 0; i < n; i++) rows.push(seedRow());
+    setPerSet(rows);
+    setEditing(true);
   };
 
   const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const addRow = () => setPerSet([...perSet, { reps: block.reps, weight: block.weight != null ? toDisplay(block.weight, unit) : "" }]);
+  const updateSide = (i, side, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, [side]: {...s[side], ...patch}} : s));
+  const addRow = () => setPerSet([...perSet, seedRow()]);
   const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
 
-  const markDone = () => {
-    if (modified) {
-      onLog({
-        completed: true,
-        mode: "modified",
-        actualSets: perSet.length,
-        actualReps: null,
-        actualWeight: null,
-        perSet: perSet.map(s => ({ reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) })),
-        notes,
-        source: "coach",
-        unit,
-      });
-    } else {
-      onLog({
-        completed: true,
-        mode: "asPlanned",
-        actualSets: Number(actualSets) || block.sets,
-        actualReps: actualReps,
-        actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
-        perSet: null,
-        notes,
-        source: "coach",
-        unit,
-      });
-    }
+  // One side's display inputs -> canonical set fields (lb / meters / seconds).
+  const sideToCanonical = (sd) => ({
+    reps: (isTime || isDistance) ? null : sd.value,
+    durationSeconds: isTime ? (sd.value === "" || sd.value == null ? null : Number(sd.value)) : null,
+    distanceM: isDistance ? (sd.value === "" || sd.value == null ? null : convertToMeters(sd.value, distanceUnit)) : null,
+    weightLb: weightLbOf(sd.weight),
+  });
+
+  const saveModified = () => {
+    const sets = perSet.map((s) => isUnilateral
+      ? { left: sideToCanonical(s.left), right: sideToCanonical(s.right) }
+      : sideToCanonical(s));
+    emit(true, sets);
   };
 
-  const plannedW = block.weight != null ? toDisplay(block.weight, unit) : null;
+  // Work-type-aware value input + weight input, reused for bilateral and
+  // each of the L/R rows.
+  const valueField = (val, onChange) => isTime
+    ? <input type="text" inputMode="numeric" value={val} onChange={e => onChange(filterNumericInput(e.target.value, true))} placeholder="secs" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+    : isDistance
+      ? <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={distanceUnit} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
+      : <input type="text" inputMode="numeric" value={val} onChange={e => onChange(filterNumericInput(e.target.value, true))} placeholder="reps" className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
+
+  const weightField = (val, onChange) =>
+    <input type="text" inputMode="decimal" value={val} onChange={e => onChange(filterNumericInput(e.target.value))} placeholder={unitLabel(unit)} className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>;
 
   return (
     <div className="rounded-xl p-4" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
       <div className="flex items-start gap-3 mb-3">
         <span className={`dot mt-1.5 ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
         <div className="flex-1 min-w-0">
-          <div className="font-medium text-[15px]">{ex.name}</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-[15px]">{ex.name}</span>
+            <SideChip side={block.side}/>
+            <WorkTypeChip workType={workType}/>
+          </div>
           <div className="text-[11px] mono uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--muted)"}}>
-            planned: {block.sets} × {block.reps}{plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · {block.rest}s rest
+            {isTime
+              ? `planned: ${block.sets} × ${block.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`
+              : workType === "distance"
+                ? `planned: ${block.sets} × ${block.distance ?? "—"}${block.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`
+                : `planned: ${block.sets} × ${block.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(unit)}` : ""} · ${block.rest}s rest`}
           </div>
           {block.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{block.notes}</div>}
         </div>
       </div>
 
-      {!modified ? (
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Sets</label>
-            <input type="text" inputMode="numeric" value={actualSets} onChange={e => setActualSets(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
+      {!editing ? (
+        <>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
+            className="field mb-3" style={{padding:"6px 10px", fontSize:"12px", width:"100%"}}/>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={logAsPrescribed} className="btn btn-accent justify-center">
+              <Check size={14}/> As prescribed
+            </button>
+            <button onClick={startModified} className="btn justify-center" style={{border:"1px solid var(--line-2)"}}>
+              Modified
+            </button>
           </div>
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
-            <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Weight ({unitLabel(unit)})</label>
-            <input type="text" inputMode="decimal" value={actualWeight} onChange={e => setActualWeight(filterNumericInput(e.target.value))} placeholder="—" className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-        </div>
+        </>
       ) : (
-        <div className="space-y-1.5 mb-3">
-          {perSet.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-              <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={`${unitLabel(unit)}`}
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
-            </div>
-          ))}
-          <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
-        </div>
+        <>
+          <div className="space-y-2 mb-3">
+            {perSet.map((s, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="mono text-[10px] uppercase tabular w-10 pt-2" style={{color:"var(--muted)"}}>Set {i+1}</span>
+                {isUnilateral ? (
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="mono text-[10px] uppercase w-3" style={{color:"var(--muted)"}}>L</span>
+                      {valueField(s.left.value, v => updateSide(i, "left", {value: v}))}
+                      {weightField(s.left.weight, v => updateSide(i, "left", {weight: v}))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="mono text-[10px] uppercase w-3" style={{color:"var(--muted)"}}>R</span>
+                      {valueField(s.right.value, v => updateSide(i, "right", {value: v}))}
+                      {weightField(s.right.weight, v => updateSide(i, "right", {weight: v}))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 flex-1">
+                    {valueField(s.value, v => updatePerSet(i, {value: v}))}
+                    {weightField(s.weight, v => updatePerSet(i, {weight: v}))}
+                  </div>
+                )}
+                <button onClick={() => removeRow(i)} className="p-1 rounded mt-1" style={{color:"var(--muted)"}}><X size={12}/></button>
+              </div>
+            ))}
+            <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
+          </div>
+          <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
+            className="field mb-3" style={{padding:"6px 10px", fontSize:"12px", width:"100%"}}/>
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => setEditing(false)} className="btn justify-center" style={{border:"1px solid var(--line-2)"}}>
+              Cancel
+            </button>
+            <button onClick={saveModified} className="btn btn-accent justify-center">
+              <Check size={14}/> Save modified
+            </button>
+          </div>
+        </>
       )}
-
-      <div className="flex items-center gap-2 mb-3">
-        <label className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{color:"var(--ink-2)"}}>
-          <input type="checkbox" checked={modified} onChange={toggleModified}/>
-          Modified
-        </label>
-        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes (form, RPE, pain, etc.)"
-          className="field" style={{padding:"6px 10px", fontSize:"12px", flex:1}}/>
-      </div>
-
-      <button onClick={markDone} className="btn btn-accent w-full justify-center">
-        <Check size={14}/> Mark done
-      </button>
     </div>
   );
 }
 
 /* -----------------------------  HISTORY TAB  ----------------------------- */
+// Total volume in lb for a per-set log. Reps: weight × reps (unweighted = 0).
+// Time/distance: weight defaults to 1 so an unweighted hold/carry still
+// contributes its time/distance. Unilateral left+right rows both count.
+function logVolumeLb(log, block) {
+  const wt = block?.work_type || "reps";
+  return (log.sets || []).reduce((acc, s) => {
+    const w = Number(s.weightLb) || 0;
+    if (wt === "time") return acc + (Number(s.durationSeconds) || 0) * (w || 1);
+    if (wt === "distance") return acc + (Number(s.distanceM) || 0) * (w || 1);
+    return acc + w * (Number(s.reps) || 0);
+  }, 0);
+}
+
+// Per-set actuals grid for a history detail row, rendered from log.sets.
+function LoggedSetsGrid({ log, block, logUnit }) {
+  const wt = block?.work_type || "reps";
+  const isTime = wt === "time";
+  const isDistance = wt === "distance";
+  const distanceUnit = block?.distanceUnit || "m";
+  const sets = log.sets || [];
+  if (!sets.length) {
+    return <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>Logged</div>;
+  }
+  return (
+    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
+      {sets.map((s, si) => {
+        const sidePfx = s.side === "left" ? "L " : s.side === "right" ? "R " : "";
+        const core = isTime ? `${s.durationSeconds ?? "—"}s`
+          : isDistance ? `${convertFromMeters(s.distanceM, distanceUnit) ?? "—"}${distanceUnit}`
+          : `${s.reps ?? "—"}`;
+        return (
+          <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
+            <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>{sidePfx}Set {s.setNumber}</div>
+            <div className="text-[13px] font-medium">
+              {s.weightLb != null && s.weightLb > 0 && <>{toDisplay(s.weightLb, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
+              {core}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitPref = "lb" }) {
+  const [openId, setOpenId] = useState(null);
   const past = clientWorkouts.filter(w => w.date <= today()).sort((a,b) => b.date.localeCompare(a.date));
-  const totalExercises = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId)).length;
   const attendedCount = attendance.filter(a => a.status === "present" && clientWorkouts.some(w => w.id === a.workoutId)).length;
-
-  // Volume calculation — uses actualWeight * actualSets * actualReps, or per-set sum if modified
-  const volumeFor = (log) => {
-    if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0), 0);
-    }
-    const sets = Number(log.actualSets) || 0;
-    const reps = parseInt(log.actualReps) || 0;
-    const wt = Number(log.actualWeight) || 0;
-    return sets * reps * wt;
-  };
-
+  const pastSessions = clientWorkouts.filter(w => !w.isTemplate && w.date <= today()).length;
+  const attendanceRate = pastSessions ? Math.round((attendedCount / pastSessions) * 100) : 100;
+  const recentPRCount = useMemo(() => {
+    const clientLogs = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId));
+    const rows = [];
+    clientLogs.forEach(l => (l.sets || []).forEach(s => {
+      const w = Number(s.weightLb) || 0;
+      if (w > 0) rows.push({ exId: l.exId, weight: w, date: l.date });
+    }));
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    const runningMax = {};
+    const cutoff = addDays(today(), -28);
+    let count = 0;
+    rows.forEach(r => {
+      const prev = runningMax[r.exId];
+      if (prev == null) { runningMax[r.exId] = r.weight; }
+      else if (r.weight > prev) {
+        runningMax[r.exId] = r.weight;
+        if (r.date >= cutoff && exercises.some(e => e.id === r.exId)) count++;
+      }
+    });
+    return count;
+  }, [logs, clientWorkouts, exercises]);
   return (
     <div>
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <StatCard label="Workouts completed" value={attendedCount} />
-        <StatCard label="Exercises logged" value={totalExercises} />
-        <StatCard label="Weeks training" value={Math.max(1, Math.floor((Date.now() - new Date(client.since+"T00:00:00").getTime()) / (1000*60*60*24*7)))} />
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        <StatCard label="Attendance" value={attendanceRate + "%"} />
+        <StatCard label="PRs · 4 wks" value={recentPRCount} />
       </div>
-
       <h2 className="display text-2xl tracking-tight mb-4">Full timeline</h2>
       {past.length === 0 ? (
         <div className="card p-6 text-sm" style={{color:"var(--muted)"}}>No completed workouts yet.</div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
             const att = attendance.find(a => a.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + logVolumeLb(l, w.blocks.find(b => b._id === l.blockId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
+            const isOpen = openId === w.id;
             return (
-              <div key={w.id} className="card p-4 hover-lift flex items-center gap-4">
-                <div className="text-center w-12 flex-shrink-0">
-                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{new Date(w.date+"T00:00:00").toLocaleDateString(undefined,{month:'short'})}</div>
-                  <div className="display text-xl tabular">{new Date(w.date+"T00:00:00").getDate()}</div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium">{w.name}</div>
-                  <div className="text-xs mono uppercase tracking-wide" style={{color:"var(--muted)"}}>
-                    {w.blocks.length} exercises · {wLogs.length} logged · {att?.status || "no attendance"}
+              <div key={w.id} className="card overflow-hidden">
+                <button onClick={() => setOpenId(isOpen ? null : w.id)} className="w-full p-4 text-left">
+                  <div className="flex items-center gap-4">
+                    <div className="text-center w-12 flex-shrink-0">
+                      <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{new Date(w.date+"T00:00:00").toLocaleDateString(undefined,{month:'short'})}</div>
+                      <div className="display text-xl tabular">{new Date(w.date+"T00:00:00").getDate()}</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[14px] font-medium truncate">{w.name}</div>
+                      <div className="mono text-[10px] uppercase tracking-wider mt-0.5" style={{color:"var(--muted)"}}>
+                        {w.blocks.length} exercises · {wLogs.length} logged · {att?.status || "no attendance"}
+                      </div>
+                    </div>
+                    {volumeLb > 0 && (
+                      <div className="text-right hidden sm:block">
+                        <div className="display text-lg tabular">{Math.round(volumeDisplay).toLocaleString()}</div>
+                        <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>{unitLabel(unitPref)} volume</div>
+                      </div>
+                    )}
+                    <ChevronRight size={16} style={{transition:"transform .2s", transform: isOpen ? "rotate(90deg)":"rotate(0)", color:"var(--muted)"}}/>
                   </div>
-                </div>
-                {volumeLb > 0 && (
-                  <div className="text-right">
-                    <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>Volume</div>
-                    <div className="display text-lg tabular">{Math.round(volumeDisplay).toLocaleString()}<span className="text-xs" style={{color:"var(--muted)"}}>{unitLabel(unitPref)}</span></div>
+                </button>
+                {isOpen && (
+                  <div className="px-4 pb-4 slide-in">
+                    <div className="divider mb-3"/>
+                    <div className="space-y-2">
+                      {(() => {
+                      const renderHistBlock = (b, i) => {
+                        const ex = exercises.find(e => e.id === b.exId);
+                        if (!ex) return null;
+                        const log = wLogs.find(l => l.blockId === b._id);
+                        const bUnit = b.unit || "lb";
+                        const logUnit = log?.unit || bUnit;
+                        const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                        const isTime = b.work_type === "time";
+                        const isDistance = b.work_type === "distance";
+                        return (
+                          <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
+                            <div className="flex items-start gap-2.5 mb-2">
+                              <span className={`dot mt-1.5 ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[14px] font-medium">{ex.name}</span>
+                                  <WorkTypeChip workType={b.work_type}/>
+                                  {log?.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+                                </div>
+                                <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
+                                  {isTime
+                                    ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                    : isDistance
+                                      ? `planned ${b.sets}×${b.distance ?? "—"}${b.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                      : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
+                                </div>
+                                {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
+                              </div>
+                            </div>
+                            {log ? (
+                              <>
+                                <LoggedSetsGrid log={log} block={b} logUnit={logUnit}/>
+                                {log.notes && <div className="text-[11px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
+                              </>
+                            ) : (
+                              <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
+                                Not logged
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+                      return groupRenderItems(w.blocks).map((item, idx) => {
+                        if (item.type === 'group') {
+                          const [b1, b2] = item.blocks;
+                          const i1 = w.blocks.indexOf(b1);
+                          const i2 = w.blocks.indexOf(b2);
+                          return (
+                            <div key={`g-${b1.groupId}`} className="rounded-lg p-2"
+                              style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                              <div className="px-1 pb-2"><SupersetChip/></div>
+                              <div className="space-y-2">
+                                {renderHistBlock(b1, i1)}
+                                {renderHistBlock(b2, i2)}
+                              </div>
+                            </div>
+                          );
+                        }
+                        const b = item.block;
+                        const i = w.blocks.indexOf(b);
+                        return renderHistBlock(b, i);
+                      });
+                    })()}
+                    </div>
                   </div>
                 )}
               </div>
@@ -2740,41 +2908,95 @@ function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitP
 
 /* -----------------------------  PROGRESS TAB  ----------------------------- */
 function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
+  const { measurements, createMeasurement } = useMeasurements(client.id);
+  const bodyweightSeries = useMemo(
+    () => measurements
+      .filter(m => m.type === "weight")
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(m => ({ date: m.date, lb: m.valueLb })),
+    [measurements]
+  );
   const prs = useMemo(() => {
     const byEx = {};
     logs.forEach(l => {
-      // Determine max weight for this log entry — check perSet OR actualWeight
-      let maxW = 0, reps = l.actualReps, date = l.date;
-      if (l.mode === "modified" && l.perSet) {
-        l.perSet.forEach(s => {
-          const w = Number(s.weight) || 0;
-          if (w > maxW) { maxW = w; reps = s.reps; }
-        });
-      } else {
-        maxW = Number(l.actualWeight) || 0;
-      }
-      if (maxW > 0 && (!byEx[l.exId] || maxW > byEx[l.exId].weight)) {
-        byEx[l.exId] = { weight: maxW, date, reps };
-      }
+      // Max weighted set for this exercise, read from the per-set log.sets shape.
+      (l.sets || []).forEach(s => {
+        const w = Number(s.weightLb) || 0;
+        if (w > 0 && (!byEx[l.exId] || w > byEx[l.exId].weight)) {
+          byEx[l.exId] = { weight: w, date: l.date, reps: s.reps };
+        }
+      });
     });
     return Object.entries(byEx).map(([exId, rec]) => ({ ex: exercises.find(e => e.id === exId), ...rec }))
       .filter(x => x.ex && x.weight > 0).sort((a,b) => b.weight - a.weight);
   }, [logs, exercises]);
 
+  const recentPRs = useMemo(() => {
+    // Flatten weighted sets, walk chronologically, and record each time an
+    // exercise beats its previous best. The first weighted set for an exercise
+    // is a baseline (not a "beat"). Then keep only PR events from the last 4 weeks.
+    const rows = [];
+    logs.forEach(l => (l.sets || []).forEach(s => {
+      const w = Number(s.weightLb) || 0;
+      if (w > 0) rows.push({ exId: l.exId, weight: w, reps: s.reps, date: l.date });
+    }));
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    const runningMax = {};
+    const events = [];
+    rows.forEach(r => {
+      const prev = runningMax[r.exId];
+      if (prev == null) { runningMax[r.exId] = r.weight; }
+      else if (r.weight > prev) { runningMax[r.exId] = r.weight; events.push(r); }
+    });
+    const cutoff = addDays(today(), -28);
+    return events.filter(e => e.date >= cutoff)
+      .map(e => ({ ...e, ex: exercises.find(x => x.id === e.exId) }))
+      .filter(e => e.ex)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [logs, exercises]);
+
   const [addingBW, setAddingBW] = useState(false);
   const [newBW, setNewBW] = useState("");
 
-  const addBW = () => {
+  const addBW = async () => {
     if (!newBW) return;
     const lb = fromDisplay(newBW, unitPref);
-    const bw = [...(client.bodyweight || []), { date: today(), lb }];
-    onUpdate({ bodyweight: bw });
-    setAddingBW(false); setNewBW("");
+    try {
+      await createMeasurement({ clientId: client.id, date: today(), type: "weight", valueLb: lb });
+      setAddingBW(false); setNewBW("");
+    } catch (err) {
+      console.error("createMeasurement failed", err);
+      alert("Failed to save bodyweight. Please try again.");
+    }
   };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <section>
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="display text-2xl tracking-tight">Recent PRs</h2>
+          <span className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>last 4 weeks</span>
+        </div>
+        {recentPRs.length === 0 ? (
+          <div className="card p-5 text-sm mb-8" style={{color:"var(--muted)"}}>No new PRs in the last 4 weeks.</div>
+        ) : (
+          <div className="card mb-8">
+            {recentPRs.slice(0, 8).map((p, i) => (
+              <div key={i} className="flex items-center gap-4 p-4" style={i>0?{borderTop:"1px solid var(--line-2)"}:{}}>
+                <span className={"dot " + movementClass(p.ex.movement)} style={{width:"8px",height:"8px"}}/>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-[14px] truncate">{p.ex.name}</div>
+                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{shortDate(p.date)}</div>
+                </div>
+                <div className="text-right tabular">
+                  <div className="display text-xl font-light" style={{color:"var(--accent)"}}>{toDisplay(p.weight, unitPref)}<span className="text-xs" style={{color:"var(--muted)"}}>{unitLabel(unitPref)}</span></div>
+                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>× {p.reps}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex items-baseline justify-between mb-4">
           <h2 className="display text-2xl tracking-tight">Personal records</h2>
           <span className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>{prs.length} tracked</span>
@@ -2812,7 +3034,7 @@ function ProgressTab({ client, logs, exercises, unitPref = "lb", onUpdate }) {
             <button onClick={() => setAddingBW(false)} className="btn btn-ghost btn-sm"><X size={12}/></button>
           </div>
         )}
-        <BodyweightChart data={client.bodyweight || []} unitPref={unitPref}/>
+        <BodyweightChart data={bodyweightSeries} unitPref={unitPref}/>
 
         <h2 className="display text-2xl tracking-tight mt-8 mb-4">Notes</h2>
         <div className="card p-4">
@@ -2908,12 +3130,12 @@ const buildEntry = (def, displayValue, unit) => {
   return null;
 };
 
-function MeasurementsTab({ client, onUpdate }) {
-  // Migrate legacy bodyweight array on first read into the unified measurements format.
-  // We don't write back until the coach actually adds something — keeps the migration lazy.
+function MeasurementsTab({ client }) {
+  const { measurements: dbMeasurements, createMeasurement, updateMeasurement, deleteMeasurement } = useMeasurements(client.id);
+  // Lazy-migrate legacy bodyweight array on first read into the unified measurements format.
+  // No write-back; once any DB measurements exist this becomes a no-op.
   const measurements = useMemo(() => {
-    const m = client.measurements || [];
-    if (m.length > 0) return m;
+    if (dbMeasurements.length > 0) return dbMeasurements;
     const bw = client.bodyweight || [];
     return bw.map(b => ({
       id: uid("m"),
@@ -2921,43 +3143,56 @@ function MeasurementsTab({ client, onUpdate }) {
       type: "weight",
       valueLb: b.lb,
     }));
-  }, [client.measurements, client.bodyweight]);
+  }, [dbMeasurements, client.bodyweight]);
 
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  const saveMeasurements = (next) => {
-    onUpdate({ measurements: next });
-  };
-
-  const addBatch = (batch) => {
+  const addBatch = async (batch) => {
     // batch: { date, entries: { metricId: { value: displayString, unit } } }
-    const newEntries = [];
+    const inputs = [];
     for (const def of METRIC_DEFS) {
       const e = batch.entries[def.id];
       if (!e || e.value === "" || e.value == null) continue;
       const stored = buildEntry(def, e.value, e.unit);
       if (!stored) continue;
-      newEntries.push({
-        id: uid("m"),
+      inputs.push({
+        clientId: client.id,
         date: batch.date,
         type: def.id,
         unit: e.unit, // remember the unit used at entry time
         ...stored,
       });
     }
-    if (newEntries.length === 0) { setAdding(false); return; }
-    saveMeasurements([...measurements, ...newEntries]);
-    setAdding(false);
+    if (inputs.length === 0) { setAdding(false); return; }
+    try {
+      for (const input of inputs) {
+        await createMeasurement(input);
+      }
+      setAdding(false);
+    } catch (err) {
+      console.error("createMeasurement failed", err);
+      alert("Failed to save measurement. Please try again.");
+    }
   };
 
-  const deleteEntry = (id) => {
-    saveMeasurements(measurements.filter(m => m.id !== id));
+  const deleteEntry = async (id) => {
+    try {
+      await deleteMeasurement(id);
+    } catch (err) {
+      console.error("deleteMeasurement failed", err);
+      alert("Failed to delete measurement. Please try again.");
+    }
   };
 
-  const updateEntry = (id, patch) => {
-    saveMeasurements(measurements.map(m => m.id === id ? { ...m, ...patch } : m));
-    setEditingId(null);
+  const updateEntry = async (id, patch) => {
+    try {
+      await updateMeasurement(id, patch);
+      setEditingId(null);
+    } catch (err) {
+      console.error("updateMeasurement failed", err);
+      alert("Failed to update measurement. Please try again.");
+    }
   };
 
   // Group by metric type for charts/lists
@@ -3396,17 +3631,49 @@ function TemplateCard({ tpl, exercises, onEdit, onDelete, onAssign }) {
       </div>
 
       <div className="space-y-1 mt-3 pt-3" style={{borderTop:"1px solid var(--line-2)"}}>
-        {tpl.blocks.slice(0, 4).map((b, i) => {
-          const ex = exercises.find(e => e.id === b.exId);
-          if (!ex) return null;
-          return (
-            <div key={i} className="flex items-center gap-2 text-[12px]">
-              <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
-              <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
-              <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.reps}</span>
-            </div>
-          );
-        })}
+        {(() => {
+          const renderBlockLine = (b, i) => {
+            const ex = exercises.find(e => e.id === b.exId);
+            if (!ex) return null;
+            return (
+              <div key={i} className="flex items-center gap-2 text-[12px]">
+                <span className="mono tabular" style={{color:"var(--muted)", width:"20px"}}>{String(i+1).padStart(2,'0')}</span>
+                <span className="flex-1 truncate" style={{color:"var(--ink-2)"}}>{ex.name}</span>
+                <span className="mono text-[10px] tabular" style={{color:"var(--muted)"}}>{b.sets}×{b.work_type === "time" ? `${b.durationSeconds ?? "—"}s` : b.work_type === "distance" ? `${b.distance ?? "—"}${b.distanceUnit || "m"}` : (b.reps ?? "—")}</span>
+              </div>
+            );
+          };
+          // Use groupRenderItems so a superset summary lines stay grouped with a chip.
+          const items = groupRenderItems(tpl.blocks);
+          // Show up to first 4 blocks (counting blocks, not items).
+          const out = [];
+          let blockCount = 0;
+          for (const item of items) {
+            if (blockCount >= 4) break;
+            if (item.type === 'group') {
+              const [b1, b2] = item.blocks;
+              const i1 = tpl.blocks.indexOf(b1);
+              const i2 = tpl.blocks.indexOf(b2);
+              out.push(
+                <div key={`g-${b1.groupId}`} className="rounded p-1.5"
+                  style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                  <div className="pb-1"><SupersetChip/></div>
+                  <div className="space-y-0.5">
+                    {renderBlockLine(b1, i1)}
+                    {renderBlockLine(b2, i2)}
+                  </div>
+                </div>
+              );
+              blockCount += 2;
+            } else {
+              const b = item.block;
+              const i = tpl.blocks.indexOf(b);
+              out.push(renderBlockLine(b, i));
+              blockCount += 1;
+            }
+          }
+          return out;
+        })()}
         {tpl.blocks.length > 4 && (
           <div className="text-[11px] mt-1" style={{color:"var(--muted)"}}>+{tpl.blocks.length - 4} more</div>
         )}
@@ -3580,7 +3847,7 @@ function ExerciseLibrary({ exercises, clients, onAdd, onUpdate, onDelete }) {
       </div>
 
       {editing && <ExerciseEditor ex={editing} existingExercises={exercises} onClose={() => setEditing(null)} onSave={(e) => { onUpdate(e); setEditing(null); }} onDelete={() => { onDelete(editing.id); setEditing(null); }}/>}
-      {creating && <ExerciseEditor ex={null} existingExercises={exercises} onClose={() => setCreating(false)} onSave={(e) => { onAdd({...e, id: uid("ex")}); setCreating(false); }}/>}
+      {creating && <ExerciseEditor ex={null} existingExercises={exercises} onClose={() => setCreating(false)} onSave={(e) => { onAdd(e); setCreating(false); }}/>}
     </div>
   );
 }
@@ -3628,7 +3895,7 @@ function ExerciseCard({ ex, onClick, compact }) {
       </div>
       {!compact && (
         <div className="flex items-center gap-2 mt-3 pt-3" style={{borderTop:"1px solid var(--line-2)"}}>
-          <span className="mono text-[10px] uppercase tabular" style={{color:"var(--ink-2)"}}>{ex.defSets}×{ex.defReps}</span>
+          <span className="mono text-[10px] uppercase tabular" style={{color:"var(--ink-2)"}}>{ex.defSets}×{exDefValue(ex)}</span>
           <span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>· {ex.defRest}s</span>
         </div>
       )}
@@ -3636,10 +3903,20 @@ function ExerciseCard({ ex, onClick, compact }) {
   );
 }
 
+// Library-row summary value: shows the right default per measurement type
+// (reps -> "10", time -> "30s", distance -> "40m"/"40yd").
+function exDefValue(ex) {
+  if (ex.defWorkType === "time") return `${ex.defDurationSeconds ?? "—"}s`;
+  if (ex.defWorkType === "distance") return `${ex.defDistance ?? "—"}${ex.defDistanceUnit || "m"}`;
+  return `${ex.defReps ?? "—"}`;
+}
+
 function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete }) {
   const [draft, setDraft] = useState(ex || {
     name: "", movement: "push", muscles: [], equipment: [], difficulty: "beginner", tags: [], contraindications: [],
-    defSets: 3, defReps: "10", defRest: 90, notes: ""
+    defSets: 3, defReps: 10, defRest: 90,
+    defWorkType: "reps", defDurationSeconds: null, defDistance: null, defDistanceUnit: "m", defSide: "bilateral",
+    notes: ""
   });
   const upd = (k, v) => setDraft({...draft, [k]: v});
 
@@ -3649,6 +3926,20 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
     e.name.trim().toLowerCase() === trimmedName && e.id !== draft.id
   );
   const canSave = draft.name.trim() && !duplicateExists;
+
+  // On save, keep only the active measurement's value; null the others so
+  // each exercise stores exactly one of reps / duration / distance.
+  const handleSave = () => {
+    if (!canSave) return;
+    const wt = draft.defWorkType || "reps";
+    onSave({
+      ...draft,
+      defWorkType: wt,
+      defReps: wt === "reps" ? draft.defReps : null,
+      defDurationSeconds: wt === "time" ? draft.defDurationSeconds : null,
+      defDistance: wt === "distance" ? draft.defDistance : null,
+    });
+  };
 
   return (
     <Modal onClose={onClose} title={ex ? "Edit exercise" : "New exercise"} wide>
@@ -3682,10 +3973,25 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
         <TagEditor label="Muscle groups" values={draft.muscles} suggestions={["chest","back","shoulders","biceps","triceps","quads","hamstrings","glutes","calves","core","lats","traps"]} onChange={v => upd("muscles", v)}/>
         <TagEditor label="Tags" values={draft.tags} suggestions={["compound","isolation","upper","lower","bodyweight","unilateral","posterior","power","conditioning","mobility","warmup","beginner-friendly","flexibility","prenatal-safe","shoulder-health"]} onChange={v => upd("tags", v)}/>
         <TagEditor label="Contraindications" values={draft.contraindications} suggestions={["shoulder injury","knee injury","low back injury","wrist injury","prenatal caution","disc issue","elbow injury"]} onChange={v => upd("contraindications", v)}/>
-        <div className="grid grid-cols-3 gap-3">
-          <NumericField label="Default sets" value={draft.defSets} onChange={n => upd("defSets", n)} integer/>
-          <Field label="Default reps" value={draft.defReps} onChange={v => upd("defReps", v)}/>
-          <NumericField label="Rest (sec)" value={draft.defRest} onChange={n => upd("defRest", n)} integer/>
+        <div>
+          <WorkTypeToggle workType={draft.defWorkType || "reps"} onChange={w => upd("defWorkType", w)}/>
+          {draft.defWorkType === "distance" && (
+            <div className="flex justify-end mt-1">
+              <DistanceUnitToggle unit={draft.defDistanceUnit || "m"} onChange={u => upd("defDistanceUnit", u)}/>
+            </div>
+          )}
+          <SideToggle side={draft.defSide || "bilateral"} onChange={s => upd("defSide", s)}/>
+          <div className="grid grid-cols-3 gap-3 mt-3">
+            <NumericField label="Default sets" value={draft.defSets} onChange={n => upd("defSets", n)} integer/>
+            {draft.defWorkType === "time" ? (
+              <NumericField label="Duration (s)" value={draft.defDurationSeconds} onChange={n => upd("defDurationSeconds", n)} integer/>
+            ) : draft.defWorkType === "distance" ? (
+              <NumericField label={`Distance (${draft.defDistanceUnit || "m"})`} value={draft.defDistance} onChange={n => upd("defDistance", n)} placeholder="—"/>
+            ) : (
+              <NumericField label="Default reps" value={draft.defReps} onChange={n => upd("defReps", n)} integer/>
+            )}
+            <NumericField label="Rest (sec)" value={draft.defRest} onChange={n => upd("defRest", n)} integer/>
+          </div>
         </div>
         <Field label="Notes" multi value={draft.notes || ""} onChange={v => upd("notes", v)}/>
       </div>
@@ -3693,7 +3999,7 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
         {ex && onDelete && <button onClick={onDelete} className="btn btn-ghost" style={{color:"var(--danger)"}}><Trash2 size={14}/> Delete</button>}
         <div className="ml-auto flex gap-2">
           <button onClick={onClose} className="btn btn-ghost">Cancel</button>
-          <button onClick={() => canSave && onSave(draft)} disabled={!canSave}
+          <button onClick={handleSave} disabled={!canSave}
             style={!canSave ? {opacity:0.45, cursor:"not-allowed"} : {}}
             className="btn btn-primary"><Check size={14}/> Save</button>
         </div>
@@ -3705,7 +4011,7 @@ function ExerciseEditor({ ex, existingExercises = [], onClose, onSave, onDelete 
 /* ============================================================
    WORKOUT BUILDER
    ============================================================ */
-function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, unitPref = "lb", onCancel, onSave }) {
+function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, unitPref = "lb", coachId, onCancel, onSave }) {
   const existing = ctx?.workoutId && !ctx?.prefill ? workouts.find(w => w.id === ctx.workoutId) : null;
   const client = ctx?.clientId ? clients.find(c => c.id === ctx.clientId) : null;
 
@@ -3723,6 +4029,162 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   const [modalityFilter, setModalityFilter] = useState(null);
   const [applyClientFilter, setApplyClientFilter] = useState(false);
   const [showRecent, setShowRecent] = useState(true);
+
+  // ---------- Draft persistence (localStorage) ----------
+  // Survives Chrome tab suspension / iOS WebView eviction so a coach mid-build
+  // can return and resume. One draft per coach; cross-profile-safe via the
+  // coachId stored in the blob.
+  const draftKey = coachId ? `ledger:builder-draft:${coachId}` : null;
+  const autosaveTimer = useRef(null);
+  // Builder entries that already carry meaningful intent (editing an existing
+  // workout, or applying a template via the edit-first prefill) must NOT show
+  // the restore prompt. Their draft for any other in-progress work is
+  // preserved silently and will surface next time on a blank entry.
+  const entryHasIntent = !!(ctx?.prefill || (ctx?.workoutId && existing));
+  const [restoreCandidate, setRestoreCandidate] = useState(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const isMeaningful = (w) => !!(w?.name?.trim() || (w?.blocks?.length > 0));
+
+  // Read draft on mount. We intentionally only run once: subsequent changes
+  // to clients/exercises shouldn't reopen the prompt.
+  useEffect(() => {
+    if (!draftKey || entryHasIntent) return;
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return;
+      const blob = JSON.parse(raw);
+      if (!blob || blob.coachId !== coachId) return; // ignore other-profile drafts
+      if (!isMeaningful(blob.workout)) {
+        // Empty leftover — silently drop it.
+        localStorage.removeItem(draftKey);
+        return;
+      }
+      setRestoreCandidate(blob);
+    } catch {
+      // corrupt blob — drop it
+      try { localStorage.removeItem(draftKey); } catch {}
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave with a 500ms debounce. Skip while we're still showing the
+  // restore prompt (initial workout state is irrelevant then) and skip empty
+  // workouts so Builder mount doesn't overwrite a real draft with nothing.
+  useEffect(() => {
+    if (!draftKey) return;
+    if (restoreCandidate) return;
+    if (!isMeaningful(workout)) return;
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      try {
+        localStorage.setItem(draftKey, JSON.stringify({
+          coachId,
+          savedAt: Date.now(),
+          workout,
+        }));
+      } catch {
+        // quota / serialization failure — ignore, draft is best-effort
+      }
+    }, 500);
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+  }, [workout, draftKey, coachId, restoreCandidate]);
+
+  const clearDraft = () => {
+    if (!draftKey) return;
+    try { localStorage.removeItem(draftKey); } catch {}
+  };
+
+  const handleResume = () => {
+    const draft = restoreCandidate?.workout;
+    if (!draft) { setRestoreCandidate(null); return; }
+    const warnings = [];
+    let cleanClientId = draft.clientId || null;
+    if (cleanClientId && !clients.find(c => c.id === cleanClientId)) {
+      cleanClientId = null;
+      warnings.push("client");
+    }
+    const exIds = new Set(exercises.map(e => e.id));
+    const originalBlocks = Array.isArray(draft.blocks) ? draft.blocks : [];
+    const keptBlocks = originalBlocks.filter(b => exIds.has(b.exId));
+    // If a superset partner was dropped, ungroup the survivor.
+    const groupCounts = keptBlocks.reduce((acc, b) => {
+      if (b.groupId) acc[b.groupId] = (acc[b.groupId] || 0) + 1;
+      return acc;
+    }, {});
+    const cleanedBlocks = keptBlocks.map(b =>
+      b.groupId && groupCounts[b.groupId] < 2
+        ? { ...b, groupId: null, groupPosition: null }
+        : b
+    );
+    const droppedCount = originalBlocks.length - keptBlocks.length;
+    setWorkout({
+      ...draft,
+      clientId: cleanClientId,
+      blocks: cleanedBlocks,
+    });
+    setRestoreCandidate(null);
+    if (droppedCount > 0) {
+      notify?.(`Some exercises in your draft were removed (${droppedCount})`);
+    } else if (warnings.length) {
+      notify?.("Draft client no longer exists — set to unassigned");
+    }
+  };
+
+  const handleDiscardDraft = () => {
+    clearDraft();
+    setRestoreCandidate(null);
+  };
+
+  const requestCancel = () => {
+    if (isMeaningful(workout)) {
+      setShowCancelConfirm(true);
+    } else {
+      onCancel?.();
+    }
+  };
+
+  const confirmCancel = () => {
+    clearDraft();
+    setShowCancelConfirm(false);
+    onCancel?.();
+  };
+
+  // Auto-name blank non-template workouts from template/client/date, make the
+  // name unique against existing workouts, then save. Templates save as-is.
+  const finalizeAndSave = async () => {
+    let toSave = workout;
+    if (!workout.isTemplate && !workout.name) {
+      const labelClient = workout.clientId ? clients.find(c => c.id === workout.clientId) : null;
+      const base = buildDefaultWorkoutName({
+        templateName: workout.sourceTemplateName || null,
+        clientLabel: labelClient ? clientLabelFromName(labelClient.name) : null,
+        dateStr: workout.date,
+      });
+      const name = uniqueWorkoutName(base, workouts.filter(w => w.id !== workout.id).map(w => w.name).filter(Boolean));
+      toSave = { ...workout, name };
+    }
+    try {
+      await onSave(toSave);
+      clearDraft();
+    } catch {
+      // onSave already surfaced the error to the user; keep the draft.
+    }
+  };
+
+  const handleSaveClick = async () => {
+    if (workout.isTemplate) {
+      // Templates keep the current behavior: a typed name is required.
+      if (!workout.name || !workout.blocks.length) return;
+      await finalizeAndSave();
+      return;
+    }
+    if (!workout.blocks.length) return;
+    if (!workout.clientId && !workout.sourceTemplateName) return; // require a client or a template
+    await finalizeAndSave();
+  };
 
   // Recent exercises: pull from this client's last 2 coach-built sessions
   // (excluding self-directed and excluding the workout currently being edited).
@@ -3777,10 +4239,20 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   }, [client, workout.blocks, exercises, applyClientFilter]);
 
   const addExercise = (ex) => {
-    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: ex.defReps, weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "" }]});
+    setWorkout({...workout, blocks: [...workout.blocks, { exId: ex.id, sets: ex.defSets, reps: repsOrNull(ex.defReps), weight: null, unit: "lb", rest: ex.defRest, notes: ex.notes || "", work_type: ex.defWorkType || "reps", durationSeconds: ex.defDurationSeconds ?? null, distance: ex.defDistance ?? null, distanceUnit: ex.defDistanceUnit || "m", side: ex.defSide || "bilateral" }]});
     notify?.(`Added ${ex.name}`);
   };
-  const removeBlock = (i) => setWorkout({...workout, blocks: workout.blocks.filter((_, idx) => idx !== i)});
+  const removeBlock = (i) => {
+    const target = workout.blocks[i];
+    let next = workout.blocks.filter((_, idx) => idx !== i);
+    // If the removed block was in a superset, auto-ungroup the surviving partner.
+    if (target?.groupId) {
+      next = next.map(b => b.groupId === target.groupId
+        ? { ...b, groupId: null, groupPosition: null }
+        : b);
+    }
+    setWorkout({...workout, blocks: next});
+  };
   const updateBlock = (i, patch) => setWorkout({...workout, blocks: workout.blocks.map((b, idx) => idx === i ? {...b, ...patch} : b)});
   const moveBlock = (i, dir) => {
     const newBlocks = [...workout.blocks];
@@ -3789,9 +4261,58 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
     [newBlocks[i], newBlocks[target]] = [newBlocks[target], newBlocks[i]];
     setWorkout({...workout, blocks: newBlocks});
   };
+  // Group block at i with the next adjacent block. The earlier block becomes
+  // group_position=1, the later block group_position=2.
+  const groupBlock = (i) => {
+    if (i < 0 || i + 1 >= workout.blocks.length) return;
+    if (workout.blocks[i].groupId || workout.blocks[i+1].groupId) return;
+    const gid = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : uid('g');
+    setWorkout({...workout, blocks: workout.blocks.map((b, idx) => {
+      if (idx === i) return { ...b, groupId: gid, groupPosition: 1 };
+      if (idx === i + 1) return { ...b, groupId: gid, groupPosition: 2 };
+      return b;
+    })});
+  };
+  // Ungroup the superset that contains block at index i.
+  const ungroupBlock = (i) => {
+    const gid = workout.blocks[i]?.groupId;
+    if (!gid) return;
+    setWorkout({...workout, blocks: workout.blocks.map(b => b.groupId === gid
+      ? { ...b, groupId: null, groupPosition: null }
+      : b
+    )});
+  };
+
+  const restoreDraft = restoreCandidate?.workout;
+  const restoreClientName = restoreDraft?.clientId
+    ? (clients.find(c => c.id === restoreDraft.clientId)?.name || "no client")
+    : "no client";
+  const restoreBlockCount = restoreDraft?.blocks?.length || 0;
 
   return (
     <div className="h-full flex slide-in">
+      {restoreCandidate && (
+        <Modal onClose={() => {}} hideClose title="Resume unsaved workout?">
+          <p className="text-sm mb-5" style={{color:"var(--ink-2)"}}>
+            You have an unsaved draft for <b>{restoreClientName}</b> on <b>{prettyDate(restoreDraft.date)}</b> ({restoreBlockCount} block{restoreBlockCount === 1 ? "" : "s"}). Resume or discard?
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <button onClick={handleDiscardDraft} className="btn btn-ghost">Discard</button>
+            <button onClick={handleResume} className="btn btn-accent">Resume</button>
+          </div>
+        </Modal>
+      )}
+      {showCancelConfirm && (
+        <Modal onClose={() => setShowCancelConfirm(false)} title="Discard unsaved changes?">
+          <p className="text-sm mb-5" style={{color:"var(--ink-2)"}}>
+            Your in-progress workout will be lost. This can't be undone.
+          </p>
+          <div className="flex items-center gap-2 justify-end">
+            <button onClick={() => setShowCancelConfirm(false)} className="btn btn-ghost">Cancel</button>
+            <button onClick={confirmCancel} className="btn btn-accent">Discard</button>
+          </div>
+        </Modal>
+      )}
       {/* Library panel */}
       {showLib && (
         <div className="w-[280px] flex flex-col flex-shrink-0" style={{background:"var(--paper-2)", borderRight:"1px solid var(--line)"}}>
@@ -3843,7 +4364,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 <span className={`dot ${movementClass(ex.movement)}`} style={{width:"9px",height:"9px"}}/>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{ex.name}</div>
-                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{ex.defReps} · {ex.difficulty}</div>
+                  <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{exDefValue(ex)} · {ex.difficulty}</div>
                 </div>
                 <Plus size={14} style={{color:"var(--muted)"}}/>
               </button>
@@ -3867,7 +4388,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
         <div className="px-6 py-6">
           <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <button onClick={onCancel} className="btn btn-ghost btn-sm"><ChevronLeft size={14}/> Back</button>
+              <button onClick={requestCancel} className="btn btn-ghost btn-sm"><ChevronLeft size={14}/> Back</button>
               {!showLib && <button onClick={() => setShowLib(true)} className="btn btn-ghost btn-sm"><BookOpen size={13}/> Library</button>}
             </div>
             <span className="mono text-[10px] uppercase tracking-[0.2em]" style={{color:"var(--muted)"}}>{workout.isTemplate ? "New template" : "New workout"} {client && `· for ${client.name}`} · {workout.blocks.length} added</span>
@@ -3899,6 +4420,25 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 Save as template
               </label>
             </div>
+            {!workout.isTemplate && (
+              <div className="flex items-end">
+                <label className="flex items-center gap-2 text-xs cursor-pointer px-3 py-2.5 rounded-lg hover-lift" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+                  <input type="checkbox" checked={!!workout.isSelfDirected} onChange={e => setWorkout({...workout, isSelfDirected: e.target.checked})}/>
+                  Client logs this session
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="mb-6">
+            <label className="mono text-[10px] uppercase tracking-widest block mb-1" style={{color:"var(--muted)"}}>Notes</label>
+            <textarea
+              value={workout.notes || ""}
+              onChange={e => setWorkout({...workout, notes: e.target.value})}
+              placeholder="Session notes (optional)"
+              rows={2}
+              className="field"
+            />
           </div>
 
           {recentSessions.length > 0 && (
@@ -3967,9 +4507,51 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
                 <div className="text-sm" style={{color:"var(--muted)"}}>Tap any exercise in the library to add it here.</div>
               </div>
             )}
-            {workout.blocks.map((b, i) => {
-              const ex = exercises.find(e => e.id === b.exId);
-              return <BuilderBlock key={i} i={i} block={b} ex={ex} onUpdate={p => updateBlock(i, p)} onRemove={() => removeBlock(i)} onMove={(dir) => moveBlock(i, dir)} canMoveUp={i>0} canMoveDown={i<workout.blocks.length-1}/>;
+            {groupRenderItems(workout.blocks).map((item, itemIdx) => {
+              if (item.type === 'group') {
+                const [b1, b2] = item.blocks;
+                const i1 = workout.blocks.indexOf(b1);
+                const i2 = workout.blocks.indexOf(b2);
+                return (
+                  <div key={`g-${b1.groupId}`} className="rounded-2xl p-2 grow-in"
+                    style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                    <div className="flex items-center justify-between px-2 pt-1 pb-2">
+                      <SupersetChip/>
+                      <button onClick={() => ungroupBlock(i1)} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded"
+                        style={{color:"var(--ink-2)"}}>
+                        Ungroup
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {[i1, i2].map(idx => {
+                        const blk = workout.blocks[idx];
+                        const ex = exercises.find(e => e.id === blk.exId);
+                        return <BuilderBlock key={idx} i={idx} block={blk} ex={ex}
+                          onUpdate={p => updateBlock(idx, p)}
+                          onRemove={() => removeBlock(idx)}
+                          onMove={(dir) => moveBlock(idx, dir)}
+                          canMoveUp={idx>0} canMoveDown={idx<workout.blocks.length-1}
+                          onGroup={null} canGroup={false}
+                          onUngroup={() => ungroupBlock(idx)}
+                          inGroup
+                        />;
+                      })}
+                    </div>
+                  </div>
+                );
+              }
+              const i = workout.blocks.indexOf(item.block);
+              const ex = exercises.find(e => e.id === item.block.exId);
+              const next = workout.blocks[i+1];
+              const canGroup = !!next && !item.block.groupId && !next.groupId;
+              return <BuilderBlock key={i} i={i} block={item.block} ex={ex}
+                onUpdate={p => updateBlock(i, p)}
+                onRemove={() => removeBlock(i)}
+                onMove={(dir) => moveBlock(i, dir)}
+                canMoveUp={i>0} canMoveDown={i<workout.blocks.length-1}
+                onGroup={() => groupBlock(i)} canGroup={canGroup}
+                onUngroup={null} inGroup={false}
+              />;
             })}
           </div>
 
@@ -3991,20 +4573,34 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
 
           <div className="sticky bottom-0 py-4" style={{background:"linear-gradient(transparent, var(--paper) 30%)"}}>
             <div className="flex items-center gap-3 justify-end">
-              {(!workout.name || !workout.blocks.length) && (
-                <span className="text-xs mono uppercase tracking-wider" style={{color:"var(--muted)"}}>
-                  {!workout.name && !workout.blocks.length ? "Name + at least 1 exercise needed" :
-                    !workout.name ? "Name required" : "Add at least 1 exercise"}
-                </span>
-              )}
-              <button onClick={onCancel} className="btn btn-ghost">Cancel</button>
-              <button
-                onClick={() => workout.name && workout.blocks.length && onSave(workout)}
-                disabled={!workout.name || !workout.blocks.length}
-                className="btn btn-accent"
-                style={(!workout.name || !workout.blocks.length) ? {opacity: 0.45, cursor: "not-allowed"} : {}}>
-                <Check size={15}/> Save {workout.isTemplate ? "template" : "workout"}
-              </button>
+              {(() => {
+                // Templates still require a typed name; non-templates auto-name
+                // when left blank, so they only need at least one block.
+                const nameMissing = workout.isTemplate && !workout.name;
+                const blocksMissing = !workout.blocks.length;
+                const clientOrTemplateMissing = !workout.isTemplate && !workout.clientId && !workout.sourceTemplateName;
+                const cannotSave = nameMissing || blocksMissing || clientOrTemplateMissing;
+                return (
+                  <>
+                    {cannotSave && (
+                      <span className="text-xs mono uppercase tracking-wider" style={{color:"var(--muted)"}}>
+                        {nameMissing && blocksMissing ? "Name + at least 1 exercise needed" :
+                          nameMissing ? "Name required" :
+                          blocksMissing ? "Add at least 1 exercise" :
+                          "Add a client or use a template"}
+                      </span>
+                    )}
+                    <button onClick={requestCancel} className="btn btn-ghost">Cancel</button>
+                    <button
+                      onClick={handleSaveClick}
+                      disabled={cannotSave}
+                      className="btn btn-accent"
+                      style={cannotSave ? {opacity: 0.45, cursor: "not-allowed"} : {}}>
+                      <Check size={15}/> Save {workout.isTemplate ? "template" : "workout"}
+                    </button>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -4013,14 +4609,18 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
   );
 }
 
-function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, canMoveDown }) {
+function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, canMoveDown, onGroup, canGroup, onUngroup, inGroup }) {
   if (!ex) return null;
   const unit = block.unit || "lb";
+  const side = block.side || "bilateral";
+  const workType = block.work_type || "reps";
   // Changing the unit toggle only changes the display unit — the canonical lb
   // weight is preserved, so flipping lb ↔ kg shows the same load in the new unit.
   const setUnit = (u) => onUpdate({ unit: u });
+  const setSide = (s) => onUpdate({ side: s });
+  const setWorkType = (w) => onUpdate({ work_type: w });
   return (
-    <div className="card p-4 grow-in">
+    <div className="card p-4 grow-in" style={inGroup ? {borderColor:"#EBBEAF", background:"#fff"} : {}}>
       <div className="flex items-start gap-3">
         <div className="flex flex-col items-center gap-0.5 pt-1">
           <button onClick={() => onMove(-1)} disabled={!canMoveUp} className="p-0.5 rounded" style={{color: canMoveUp ? "var(--ink-2)" : "var(--line)"}}><ChevronLeft size={12} style={{transform:"rotate(90deg)"}}/></button>
@@ -4037,13 +4637,38 @@ function BuilderBlock({ i, block, ex, onUpdate, onRemove, onMove, canMoveUp, can
               <div className="mono text-[10px] uppercase tracking-wide mt-0.5" style={{color:"var(--muted)"}}>{ex.movement}</div>
             </div>
             <div className="flex items-center gap-2">
+              {!inGroup && onGroup && (
+                <button
+                  onClick={canGroup ? onGroup : undefined}
+                  disabled={!canGroup}
+                  title={canGroup ? "Group with the next exercise as a superset" : "No eligible next exercise to group with"}
+                  className="text-[11px] mono uppercase tracking-wider px-2 py-1 rounded hover-lift"
+                  style={canGroup
+                    ? {background:"var(--paper-2)", color:"var(--ink-2)", border:"1px solid var(--line-2)"}
+                    : {background:"transparent", color:"var(--line)", border:"1px solid var(--line-2)", cursor:"not-allowed"}}>
+                  Group with next
+                </button>
+              )}
               <UnitToggle unit={unit} onChange={setUnit}/>
               <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={14}/></button>
             </div>
           </div>
+          <WorkTypeToggle workType={workType} onChange={setWorkType}/>
+          {workType === "distance" && (
+            <div className="flex justify-end mt-1">
+              <DistanceUnitToggle unit={block.distanceUnit || "m"} onChange={u => onUpdate({distanceUnit: u})}/>
+            </div>
+          )}
+          <SideToggle side={side} onChange={setSide}/>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-3">
             <NumericField label="Sets" value={block.sets} onChange={n => onUpdate({sets: n})} integer mini/>
-            <MiniField label="Reps" value={block.reps} onChange={v => onUpdate({reps: v})}/>
+            {workType === "time" ? (
+              <NumericField label="Duration (s)" value={block.durationSeconds} onChange={n => onUpdate({durationSeconds: n})} integer mini/>
+            ) : workType === "distance" ? (
+              <NumericField label={`Dist (${block.distanceUnit || "m"})`} value={block.distance} onChange={n => onUpdate({distance: n})} placeholder="—" mini/>
+            ) : (
+              <NumericField label="Reps" value={block.reps} onChange={n => onUpdate({reps: n})} integer mini/>
+            )}
             <NumericField label={`Weight (${unitLabel(unit)})`} value={block.weight != null ? toDisplay(block.weight, unit) : null}
               onChange={n => onUpdate({weight: n == null ? null : fromDisplay(n, unit)})} placeholder="—" mini/>
             <NumericField label="Rest (s)" value={block.rest} onChange={n => onUpdate({rest: n})} integer mini/>
@@ -4069,6 +4694,86 @@ function UnitToggle({ unit, onChange }) {
         </button>
       ))}
     </div>
+  );
+}
+
+function DistanceUnitToggle({ unit, onChange }) {
+  return (
+    <div className="flex gap-0.5 p-0.5 rounded-lg" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+      {["m","yd"].map(u => (
+        <button key={u} onClick={() => onChange(u)}
+          type="button"
+          className="px-2 py-0.5 rounded text-[10px] font-medium mono uppercase tracking-wide"
+          style={unit === u
+            ? {background:"var(--ink)", color:"var(--paper)"}
+            : {background:"transparent", color:"var(--muted)"}}>
+          {u}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const SIDE_OPTIONS = [
+  { value: "bilateral",  label: "Bilateral" },
+  { value: "unilateral", label: "Unilateral" },
+];
+
+function SideToggle({ side, onChange }) {
+  return (
+    <div className="flex gap-0.5 p-0.5 rounded-lg w-full mt-2" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+      {SIDE_OPTIONS.map(o => (
+        <button key={o.value} onClick={() => onChange(o.value)}
+          type="button"
+          className="flex-1 px-2 py-1 rounded text-[10px] font-medium mono uppercase tracking-wide"
+          style={side === o.value
+            ? {background:"var(--ink)", color:"var(--paper)"}
+            : {background:"transparent", color:"var(--muted)"}}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SideChip({ side }) {
+  if (side !== "unilateral") return null;
+  return (
+    <span className="chip" style={{fontSize:"10px", padding:"2px 8px", background:"var(--paper-2)", color:"var(--ink-2)", borderColor:"var(--line-2)"}}>
+      Unilateral
+    </span>
+  );
+}
+
+const WORK_TYPE_OPTIONS = [
+  { value: "reps", label: "Reps" },
+  { value: "time", label: "Time" },
+  { value: "distance", label: "Distance" },
+];
+
+function WorkTypeToggle({ workType, onChange }) {
+  return (
+    <div className="flex gap-0.5 p-0.5 rounded-lg w-full mt-2" style={{background:"var(--paper-2)", border:"1px solid var(--line-2)"}}>
+      {WORK_TYPE_OPTIONS.map(o => (
+        <button key={o.value} onClick={() => onChange(o.value)}
+          type="button"
+          className="flex-1 px-2 py-1 rounded text-[10px] font-medium mono uppercase tracking-wide"
+          style={workType === o.value
+            ? {background:"var(--ink)", color:"var(--paper)"}
+            : {background:"transparent", color:"var(--muted)"}}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WorkTypeChip({ workType }) {
+  if (workType !== "time") return null;
+  return (
+    <span className="chip" style={{fontSize:"10px", padding:"2px 8px", background:"var(--paper-2)", color:"var(--ink-2)", borderColor:"var(--line-2)"}}>
+      Hold
+    </span>
   );
 }
 
@@ -4186,13 +4891,15 @@ function AddClientModal({ onClose, onSave }) {
 /* ============================================================
    MODAL
    ============================================================ */
-function Modal({ onClose, title, children, wide }) {
+function Modal({ onClose, title, children, wide, hideClose }) {
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center p-6 grow-in" style={{background:"rgba(22,20,15,0.35)", backdropFilter:"blur(4px)"}}>
       <div className="card w-full overflow-hidden flex flex-col" style={{maxWidth: wide ? "640px" : "520px", maxHeight:"90vh", boxShadow:"0 32px 80px rgba(22,20,15,0.3)"}}>
         <div className="flex items-center justify-between px-6 py-4" style={{borderBottom:"1px solid var(--line-2)"}}>
           <h3 className="display text-xl tracking-tight">{title}</h3>
-          <button onClick={onClose} className="p-1.5 rounded hover-lift" style={{color:"var(--muted)"}}><X size={16}/></button>
+          {!hideClose && (
+            <button onClick={onClose} className="p-1.5 rounded hover-lift" style={{color:"var(--muted)"}}><X size={16}/></button>
+          )}
         </div>
         <div className="overflow-y-auto px-6 py-5">
           {children}
@@ -4205,7 +4912,7 @@ function Modal({ onClose, title, children, wide }) {
 /* ============================================================
    CLIENT VIEW — simplified interface for end-clients
    ============================================================ */
-function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected, onUpdateClient }) {
+function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit, onLog, onCreateSelfDirected, onDeleteLog, addBlock }) {
   const [tab, setTab] = useState("today"); // today | history | log | notes
   const t = today();
   const nextWorkout = useMemo(() => {
@@ -4239,10 +4946,10 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[680px] mx-auto px-5 py-6">
-          {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")}/>}
+          {tab === "today" && <ClientTodayTab client={client} nextWorkout={nextWorkout} exercises={exercises} logs={logs} past={past} unitPref={unitPref} onGoLog={() => setTab("log")} onLog={onLog} onDeleteLog={onDeleteLog} completedCount={workouts.filter(w => w.completedAt).length}/>}
           {tab === "history" && <ClientHistoryTab past={past} exercises={exercises} logs={logs} unitPref={unitPref}/>}
-          {tab === "log" && <ClientLogTab client={client} exercises={exercises} logs={logs} unitPref={unitPref} onCreateSelfDirected={onCreateSelfDirected} onLog={onLog}/>}
-          {tab === "notes" && <ClientNotesTab client={client} onUpdateClient={onUpdateClient}/>}
+          {tab === "log" && <ClientLogTab client={client} exercises={exercises} logs={logs} unitPref={unitPref} onCreateSelfDirected={onCreateSelfDirected} onLog={onLog} onDeleteLog={onDeleteLog} addBlock={addBlock}/>}
+          {tab === "notes" && <ClientNotesTab client={client}/>}
         </div>
       </div>
 
@@ -4270,7 +4977,7 @@ function ClientView({ client, workouts, exercises, logs, unitPref = "lb", onExit
   );
 }
 
-function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref = "lb", onGoLog }) {
+function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref = "lb", onGoLog, onLog, onDeleteLog, completedCount = 0 }) {
   const greeting = (() => {
     const h = new Date().getHours();
     if (h < 12) return "Good morning";
@@ -4286,6 +4993,11 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
         <div className="display text-base italic mt-1" style={{color:"var(--ink-2)"}}>
           {new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}
         </div>
+        {completedCount > 0 && (
+          <div className="mono text-[10px] uppercase tracking-widest mt-2" style={{color:"var(--muted)"}}>
+            {completedCount} {completedCount === 1 ? "session" : "sessions"} completed
+          </div>
+        )}
       </div>
 
       {nextWorkout ? (
@@ -4303,38 +5015,95 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
               </span>
             </div>
             <div className="mono text-[10px] uppercase tracking-wider mb-4" style={{color:"var(--muted)"}}>
-              {nextWorkout.blocks.length} exercises · with your coach
+              {nextWorkout.blocks.length} exercises · {nextWorkout.isSelfDirected ? "log it yourself" : "with your coach"}
             </div>
+            {nextWorkout.isSelfDirected && (
+              <div className="space-y-2">
+                {(() => {
+                  const wLogs = logs.filter(l => l.workoutId === nextWorkout.id);
+                  const wire = (b) => ({
+                    block: b,
+                    ex: exercises.find(e => e.id === b.exId),
+                    blockLog: wLogs.find(l => l.blockId === b._id),
+                    onLog: (log) => onLog({...log, workoutId: nextWorkout.id, blockId: b._id, exId: b.exId, date: nextWorkout.date}),
+                  });
+                  return groupRenderItems(nextWorkout.blocks).map((item, idx) => {
+                    if (item.type === 'group') {
+                      const [b1, b2] = item.blocks;
+                      const w1 = wire(b1), w2 = wire(b2);
+                      return (
+                        <div key={`g-${b1.groupId}`} className="rounded-2xl p-3" style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                          <div className="px-1 pb-2"><SupersetChip/></div>
+                          <div className="grid md:grid-cols-2 gap-2">
+                            <ExerciseBlock block={w1.block} ex={w1.ex} blockLog={w1.blockLog} onLog={w1.onLog} onDeleteLog={onDeleteLog}/>
+                            <ExerciseBlock block={w2.block} ex={w2.ex} blockLog={w2.blockLog} onLog={w2.onLog} onDeleteLog={onDeleteLog}/>
+                          </div>
+                        </div>
+                      );
+                    }
+                    const w = wire(item.block);
+                    return <ExerciseBlock key={`b-${item.block._id ?? item.block.exId}-${idx}`} block={w.block} ex={w.ex} blockLog={w.blockLog} onLog={w.onLog} onDeleteLog={onDeleteLog}/>;
+                  });
+                })()}
+              </div>
+            )}
+            {!nextWorkout.isSelfDirected && (
             <div className="space-y-2">
-              {nextWorkout.blocks.map((b, i) => {
-                const ex = exercises.find(e => e.id === b.exId);
-                if (!ex) return null;
-                const bUnit = b.unit || "lb";
-                const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
-                return (
-                  <div key={i} className="flex items-center gap-3 p-3 rounded-lg" style={{background:"var(--paper)"}}>
-                    <span className="display text-sm tabular" style={{color:"var(--muted)", width:"22px"}}>{String(i+1).padStart(2,'0')}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[14px] font-medium">{ex.name}</div>
-                      {b.notes && <div className="text-[11px] italic mt-0.5" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
-                    </div>
-                    <div className="text-right">
-                      <div className="display text-base tabular">
-                        {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{b.reps}
-                        {plannedW != null && <span className="text-xs ml-1" style={{color:"var(--muted)"}}>@ {plannedW}{unitLabel(bUnit)}</span>}
+              {(() => {
+                const renderRow = (b, i) => {
+                  const ex = exercises.find(e => e.id === b.exId);
+                  if (!ex) return null;
+                  const bUnit = b.unit || "lb";
+                  const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                  const isTime = b.work_type === "time";
+                  return (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-lg" style={{background:"var(--paper)"}}>
+                      <span className="display text-sm tabular" style={{color:"var(--muted)", width:"22px"}}>{String(i+1).padStart(2,'0')}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[14px] font-medium">{ex.name}</div>
+                        {b.notes && <div className="text-[11px] italic mt-0.5" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                       </div>
-                      <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{b.rest}s rest</div>
+                      <div className="text-right">
+                        <div className="display text-base tabular">
+                          {b.sets}<span className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>×</span>{isTime ? `${b.durationSeconds ?? "—"}s` : b.reps}
+                          {plannedW != null && <span className="text-xs ml-1" style={{color:"var(--muted)"}}>@ {plannedW}{unitLabel(bUnit)}</span>}
+                        </div>
+                        <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{b.rest}s rest</div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                };
+                return groupRenderItems(nextWorkout.blocks).map((item, idx) => {
+                  if (item.type === 'group') {
+                    const [b1, b2] = item.blocks;
+                    const i1 = nextWorkout.blocks.indexOf(b1);
+                    const i2 = nextWorkout.blocks.indexOf(b2);
+                    return (
+                      <div key={`g-${b1.groupId}`} className="rounded-lg p-2"
+                        style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                        <div className="px-1 pb-2"><SupersetChip/></div>
+                        <div className="space-y-1.5">
+                          {renderRow(b1, i1)}
+                          {renderRow(b2, i2)}
+                        </div>
+                      </div>
+                    );
+                  }
+                  const b = item.block;
+                  const i = nextWorkout.blocks.indexOf(b);
+                  return renderRow(b, i);
+                });
+              })()}
             </div>
+            )}
+            {!nextWorkout.isSelfDirected && (
             <div className="mt-4 p-3 rounded-lg flex items-start gap-2.5" style={{background:"var(--paper-2)", border:"1px dashed var(--line)"}}>
               <AlertTriangle size={13} style={{color:"var(--muted)", marginTop:"2px"}}/>
               <div className="text-[12px]" style={{color:"var(--ink-2)"}}>
                 Your coach will log your sets during this session. You can add notes in the <b>Notes</b> tab.
               </div>
             </div>
+            )}
           </div>
         </section>
       ) : (
@@ -4373,15 +5142,6 @@ function ClientTodayTab({ client, nextWorkout, exercises, logs, past, unitPref =
 function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
   const [openId, setOpenId] = useState(null);
 
-  const volumeFor = (log) => {
-    if (log.mode === "modified" && log.perSet) {
-      return log.perSet.reduce((acc, s) => acc + (Number(s.weight) || 0) * (parseInt(s.reps) || 0), 0);
-    }
-    const sets = Number(log.actualSets) || 0;
-    const reps = parseInt(log.actualReps) || 0;
-    const wt = Number(log.actualWeight) || 0;
-    return sets * reps * wt;
-  };
 
   return (
     <div>
@@ -4398,7 +5158,7 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
         <div className="space-y-2">
           {past.map(w => {
             const wLogs = logs.filter(l => l.workoutId === w.id);
-            const volumeLb = wLogs.reduce((acc, l) => acc + volumeFor(l), 0);
+            const volumeLb = wLogs.reduce((acc, l) => acc + logVolumeLb(l, w.blocks.find(b => b._id === l.blockId)), 0);
             const volumeDisplay = toDisplay(volumeLb, unitPref);
             const isOpen = openId === w.id;
             return (
@@ -4428,13 +5188,16 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                   <div className="px-4 pb-4 slide-in">
                     <div className="divider mb-3"/>
                     <div className="space-y-2">
-                      {w.blocks.map((b, i) => {
+                      {(() => {
+                      const renderHistBlock = (b, i) => {
                         const ex = exercises.find(e => e.id === b.exId);
                         if (!ex) return null;
-                        const log = wLogs.find(l => l.exId === b.exId);
+                        const log = wLogs.find(l => l.blockId === b._id);
                         const bUnit = b.unit || "lb";
                         const logUnit = log?.unit || bUnit;
                         const plannedW = b.weight != null ? toDisplay(b.weight, bUnit) : null;
+                        const isTime = b.work_type === "time";
+                        const isDistance = b.work_type === "distance";
                         return (
                           <div key={i} className="rounded-lg p-3" style={{background:"var(--paper)", border:"1px solid var(--line-2)"}}>
                             <div className="flex items-start gap-2.5 mb-2">
@@ -4442,36 +5205,24 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <span className="text-[14px] font-medium">{ex.name}</span>
-                                  {log?.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
+                                  <WorkTypeChip workType={b.work_type}/>
+                                  {log?.modified && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
                                 </div>
                                 <div className="mono text-[10px] uppercase tracking-wider mt-0.5 tabular" style={{color:"var(--muted)"}}>
-                                  planned {b.sets}×{b.reps}{plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · {b.rest}s rest
+                                  {isTime
+                                    ? `planned ${b.sets}×${b.durationSeconds ?? "—"}s hold${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                    : isDistance
+                                      ? `planned ${b.sets}×${b.distance ?? "—"}${b.distanceUnit || "m"}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`
+                                      : `planned ${b.sets}×${b.reps}${plannedW != null ? ` @ ${plannedW}${unitLabel(bUnit)}` : ""} · ${b.rest}s rest`}
                                 </div>
                                 {b.notes && <div className="text-[11px] italic mt-1" style={{color:"var(--ink-2)"}}>{b.notes}</div>}
                               </div>
                             </div>
                             {log ? (
-                              log.mode === "modified" && log.perSet ? (
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 mt-2">
-                                  {log.perSet.map((s, si) => (
-                                    <div key={si} className="rounded px-2 py-1.5 tabular text-center" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                      <div className="mono text-[9px] uppercase" style={{color:"var(--muted)"}}>Set {si+1}</div>
-                                      <div className="text-[13px] font-medium">
-                                        {s.weight != null && s.weight > 0 && <>{toDisplay(s.weight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span> × </>}
-                                        {s.reps}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <div className="mt-2 rounded px-3 py-2 tabular" style={{background:"#fff", border:"1px solid var(--line-2)"}}>
-                                  <span className="text-[13px] font-medium">
-                                    {log.actualSets ?? b.sets} × {log.actualReps ?? b.reps}
-                                    {log.actualWeight != null && log.actualWeight > 0 && <> @ {toDisplay(log.actualWeight, logUnit)}<span style={{color:"var(--muted)", fontSize:"10px"}}>{unitLabel(logUnit)}</span></>}
-                                  </span>
-                                  {log.notes && <span className="text-[11px] italic ml-2" style={{color:"var(--ink-2)"}}>{log.notes}</span>}
-                                </div>
-                              )
+                              <>
+                                <LoggedSetsGrid log={log} block={b} logUnit={logUnit}/>
+                                {log.notes && <div className="text-[11px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{log.notes}</div>}
+                              </>
                             ) : (
                               <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
                                 Not logged
@@ -4479,7 +5230,28 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
                             )}
                           </div>
                         );
-                      })}
+                      };
+                      return groupRenderItems(w.blocks).map((item, idx) => {
+                        if (item.type === 'group') {
+                          const [b1, b2] = item.blocks;
+                          const i1 = w.blocks.indexOf(b1);
+                          const i2 = w.blocks.indexOf(b2);
+                          return (
+                            <div key={`g-${b1.groupId}`} className="rounded-lg p-2"
+                              style={{background:"var(--accent-soft)", border:"1px solid #EBBEAF"}}>
+                              <div className="px-1 pb-2"><SupersetChip/></div>
+                              <div className="space-y-2">
+                                {renderHistBlock(b1, i1)}
+                                {renderHistBlock(b2, i2)}
+                              </div>
+                            </div>
+                          );
+                        }
+                        const b = item.block;
+                        const i = w.blocks.indexOf(b);
+                        return renderHistBlock(b, i);
+                      });
+                    })()}
                     </div>
                   </div>
                 )}
@@ -4492,38 +5264,69 @@ function ClientHistoryTab({ past, exercises, logs, unitPref = "lb" }) {
   );
 }
 
-function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDirected, onLog }) {
-  // Self-directed session: client picks exercises, logs sets, saves
-  const [session, setSession] = useState(null); // { id, blocks: [{exId, sets}] }
+function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDirected, onLog, onDeleteLog, addBlock }) {
+  // Persist-first solo session:
+  //  PLAN — build a block list locally (nothing is saved yet)
+  //  LOG  — the workout + blocks are persisted with real ids, then logged against.
+  // Adding an exercise mid-session inserts a single block (addBlock), so it never
+  // disturbs the sets already logged.
+  const [phase, setPhase] = useState("plan"); // "plan" | "log"
   const [name, setName] = useState("");
-  const [pickingExercise, setPickingExercise] = useState(false);
+  const [planBlocks, setPlanBlocks] = useState([]);
+  const [workout, setWorkout] = useState(null);
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const startSession = () => {
-    const n = name.trim() || `Solo — ${new Date().toLocaleDateString(undefined, { month:'short', day:'numeric' })}`;
-    setSession({ id: uid("w"), name: n, date: today(), blocks: [] });
-    setName(n);
+  const defaultName = () => `Solo — ${new Date().toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+
+  const blockFromExercise = (ex) => ({
+    exId: ex.id,
+    sets: ex.defSets ?? 3,
+    reps: ex.defReps ?? null,
+    rest: ex.defRest ?? null,
+    weight: null,
+    unit: unitPref,
+    notes: null,
+    side: ex.defSide ?? "bilateral",
+    work_type: ex.defWorkType ?? "reps",
+    durationSeconds: ex.defDurationSeconds ?? null,
+    distance: ex.defDistance ?? null,
+    distanceUnit: ex.defDistanceUnit ?? "m",
+    groupId: null,
+    groupPosition: null,
+  });
+
+  const reset = () => { setPhase("plan"); setName(""); setPlanBlocks([]); setWorkout(null); setPicking(false); };
+
+  const startLogging = async () => {
+    if (planBlocks.length === 0 || busy) return;
+    setBusy(true);
+    try {
+      const created = await onCreateSelfDirected({
+        name: name.trim() || defaultName(),
+        date: today(),
+        blocks: planBlocks,
+      });
+      if (created && created.id) { setWorkout(created); setPhase("log"); }
+    } finally { setBusy(false); }
   };
 
-  const addExerciseToSession = (ex) => {
-    setSession({...session, blocks: [...session.blocks, { exId: ex.id, sets: ex.defSets, reps: ex.defReps, rest: ex.defRest, notes: "", unit: "lb" }]});
-    setPickingExercise(false);
+  const addLogExercise = async (ex) => {
+    setPicking(false);
+    if (busy) return;
+    setBusy(true);
+    try {
+      const hydrated = await addBlock(workout.id, blockFromExercise(ex));
+      setWorkout(prev => ({ ...prev, blocks: [...prev.blocks, hydrated] }));
+    } catch (err) {
+      console.error("addBlock failed", err);
+      alert("Failed to add exercise: " + err.message);
+    } finally { setBusy(false); }
   };
 
-  const finalize = () => {
-    if (!session || session.blocks.length === 0) return;
-    const workoutId = onCreateSelfDirected({
-      id: session.id,
-      name: session.name,
-      date: session.date,
-      blocks: session.blocks,
-    });
-    setSession(null);
-    setName("");
-  };
-
-  if (!session) {
-    // Start screen
-    const soloSessions = logs.filter(l => l.source === "client").length;
+  // ---- PLAN phase ----
+  if (phase === "plan") {
+    const soloCount = logs.filter(l => l.source === "client").length;
     return (
       <div>
         <div className="mb-6">
@@ -4534,208 +5337,96 @@ function ClientLogTab({ client, exercises, logs, unitPref = "lb", onCreateSelfDi
           </div>
         </div>
 
-        <div className="card p-5">
+        <div className="card p-5 mb-4">
           <label className="mono text-[10px] uppercase tracking-widest" style={{color:"var(--muted)"}}>Session name (optional)</label>
           <input value={name} onChange={e => setName(e.target.value)} className="field mt-1.5" placeholder="e.g. Morning cardio, Hotel gym"/>
-          <button onClick={startSession} className="btn btn-accent w-full mt-4 justify-center">
-            <Plus size={14}/> Start session
-          </button>
         </div>
 
-        {soloSessions > 0 && (
+        {planBlocks.length > 0 && (
+          <div className="space-y-2 mb-4">
+            {planBlocks.map((b, i) => {
+              const ex = exercises.find(e => e.id === b.exId);
+              return (
+                <div key={`p-${b.exId}-${i}`} className="card px-4 py-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-[14px] truncate">{ex ? ex.name : "Exercise"}</div>
+                    <div className="mono text-[10px] uppercase tracking-wide" style={{color:"var(--muted)"}}>
+                      {b.sets ?? "—"} sets{b.work_type === "reps" && b.reps ? ` · ${b.reps} reps` : ""}
+                    </div>
+                  </div>
+                  <button onClick={() => setPlanBlocks(prev => prev.filter((_, idx) => idx !== i))}
+                    className="btn btn-ghost btn-sm" aria-label="Remove exercise"><X size={14}/></button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <button onClick={() => setPicking(true)} className="btn btn-ghost w-full justify-center py-3 mb-4" style={{borderStyle:"dashed"}}>
+          <Plus size={14}/> Add exercise
+        </button>
+
+        <button onClick={startLogging} disabled={planBlocks.length === 0 || busy}
+          style={(planBlocks.length === 0 || busy) ? {opacity:0.45, cursor:"not-allowed"} : {}}
+          className="btn btn-accent w-full justify-center">
+          <Check size={14}/> {busy ? "Starting…" : "Start logging"}
+        </button>
+
+        {soloCount > 0 && (
           <div className="mt-5 text-center">
             <div className="mono text-[10px] uppercase tracking-wider" style={{color:"var(--muted)"}}>
-              {soloSessions} solo {soloSessions === 1 ? "exercise" : "exercises"} logged all-time
+              {soloCount} solo {soloCount === 1 ? "set" : "sets"} logged all-time
             </div>
           </div>
+        )}
+
+        {picking && (
+          <ClientExercisePicker exercises={exercises} client={client}
+            onClose={() => setPicking(false)}
+            onPick={(ex) => { setPlanBlocks(prev => [...prev, blockFromExercise(ex)]); setPicking(false); }}/>
         )}
       </div>
     );
   }
 
+  // ---- LOG phase ----
+  const wLogs = logs.filter(l => l.workoutId === workout.id);
   return (
     <div>
       <div className="mb-5">
         <div className="mono text-[10px] uppercase tracking-[0.2em]" style={{color:"var(--accent)"}}>— In progress</div>
-        <input
-          value={name} onChange={e => { setName(e.target.value); setSession({...session, name: e.target.value}); }}
-          className="display text-3xl font-light tracking-tight w-full mt-1"
-          style={{background:"transparent", border:"none"}}
-          placeholder="Name this session"
-        />
+        <h1 className="display text-3xl font-light tracking-tight mt-1">{workout.name}</h1>
         <div className="mono text-[10px] uppercase tracking-wider mt-1" style={{color:"var(--muted)"}}>
-          {session.blocks.length} {session.blocks.length === 1 ? "exercise" : "exercises"}
+          {workout.blocks.length} {workout.blocks.length === 1 ? "exercise" : "exercises"} · {wLogs.length} logged
         </div>
       </div>
 
-      <div className="space-y-3 mb-4">
-        {session.blocks.map((b, i) => {
+      <div className="space-y-2 mb-4">
+        {workout.blocks.map((b, idx) => {
           const ex = exercises.find(e => e.id === b.exId);
-          return <SelfLogBlock key={i} block={b} ex={ex} sessionId={session.id}
-            onRemove={() => setSession({...session, blocks: session.blocks.filter((_,idx) => idx !== i)})}
-            onLog={(data) => onLog({...data, workoutId: session.id, exId: b.exId, date: session.date})}
-            blockLog={logs.find(l => l.workoutId === session.id && l.exId === b.exId)}
-          />;
+          const blockLog = wLogs.find(l => l.blockId === b._id);
+          return (
+            <ExerciseBlock key={`b-${b._id ?? b.exId}-${idx}`} block={b} ex={ex} blockLog={blockLog}
+              onLog={(log) => onLog({...log, workoutId: workout.id, blockId: b._id, exId: b.exId, date: workout.date})}
+              onDeleteLog={onDeleteLog}/>
+          );
         })}
       </div>
 
-      <button onClick={() => setPickingExercise(true)} className="btn btn-ghost w-full justify-center py-3 mb-4" style={{borderStyle:"dashed"}}>
+      <button onClick={() => setPicking(true)} disabled={busy}
+        className="btn btn-ghost w-full justify-center py-3 mb-4" style={{borderStyle:"dashed", ...(busy ? {opacity:0.5} : {})}}>
         <Plus size={14}/> Add exercise
       </button>
 
       <div className="sticky bottom-0 py-3" style={{background:"linear-gradient(transparent, var(--paper) 25%)"}}>
-        <div className="flex items-center gap-2">
-          <button onClick={() => { if (confirm("Discard this session?")) setSession(null); }} className="btn btn-ghost">Discard</button>
-          <button onClick={finalize} disabled={session.blocks.length === 0}
-            style={session.blocks.length === 0 ? {opacity:0.45, cursor:"not-allowed"} : {}}
-            className="btn btn-primary flex-1 justify-center"><Check size={14}/> Finish session</button>
-        </div>
+        <button onClick={reset} className="btn btn-primary w-full justify-center"><Check size={14}/> Finish session</button>
       </div>
 
-      {pickingExercise && (
+      {picking && (
         <ClientExercisePicker exercises={exercises} client={client}
-          onClose={() => setPickingExercise(false)}
-          onPick={addExerciseToSession}/>
+          onClose={() => setPicking(false)}
+          onPick={addLogExercise}/>
       )}
-    </div>
-  );
-}
-
-function SelfLogBlock({ block, ex, sessionId, onRemove, onLog, blockLog }) {
-  if (!ex) return null;
-
-  // Already logged — show summary
-  if (blockLog) {
-    const unit = blockLog.unit || block.unit || "lb";
-    const actualW = blockLog.actualWeight != null ? toDisplay(blockLog.actualWeight, unit) : null;
-    return (
-      <div className="card p-4 grow-in" style={{borderColor: "var(--good)"}}>
-        <div className="flex items-start gap-3">
-          <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{background:"var(--good)"}}>
-            <Check size={14} style={{color:"#fff"}} strokeWidth={3}/>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium text-[14px]">{ex.name}</span>
-              {blockLog.mode === "modified" && <span className="chip chip-warn" style={{fontSize:"10px", padding:"2px 8px"}}>Modified</span>}
-            </div>
-            <div className="mono text-[11px] uppercase tracking-wide mt-0.5 tabular" style={{color:"var(--ink-2)"}}>
-              {blockLog.mode === "modified" && blockLog.perSet ? (
-                blockLog.perSet.map(s => `${toDisplay(s.weight, unit) || "—"}${s.weight != null ? unitLabel(unit) : ""} × ${s.reps}`).join(" · ")
-              ) : (
-                `${blockLog.actualSets ?? block.sets} × ${blockLog.actualReps ?? block.reps}${actualW != null ? ` @ ${actualW}${unitLabel(unit)}` : ""}`
-              )}
-            </div>
-            {blockLog.notes && <div className="text-[12px] italic mt-1.5" style={{color:"var(--ink-2)"}}>{blockLog.notes}</div>}
-          </div>
-          <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={13}/></button>
-        </div>
-      </div>
-    );
-  }
-
-  // Not logged — show the LogCard pattern
-  return <ClientLogCard block={block} ex={ex} onLog={onLog} onRemove={onRemove}/>;
-}
-
-function ClientLogCard({ block, ex, onLog, onRemove }) {
-  const unit = block.unit || "lb";
-  const [actualSets, setActualSets] = useState(block.sets);
-  const [actualReps, setActualReps] = useState(block.reps);
-  const [actualWeight, setActualWeight] = useState("");
-  const [modified, setModified] = useState(false);
-  const [perSet, setPerSet] = useState([]);
-  const [notes, setNotes] = useState("");
-
-  const toggleModified = () => {
-    if (!modified) {
-      const rows = [];
-      const nSets = Number(block.sets) || 1;
-      for (let i = 0; i < nSets; i++) rows.push({ reps: block.reps, weight: "" });
-      setPerSet(rows);
-    }
-    setModified(!modified);
-  };
-  const updatePerSet = (i, patch) => setPerSet(perSet.map((s, idx) => idx === i ? {...s, ...patch} : s));
-  const addRow = () => setPerSet([...perSet, { reps: block.reps, weight: "" }]);
-  const removeRow = (i) => setPerSet(perSet.filter((_, idx) => idx !== i));
-
-  const markDone = () => {
-    if (modified) {
-      onLog({
-        completed: true, mode: "modified",
-        actualSets: perSet.length, actualReps: null, actualWeight: null,
-        perSet: perSet.map(s => ({ reps: s.reps, weight: s.weight === "" ? null : fromDisplay(s.weight, unit) })),
-        notes, source: "client", unit,
-      });
-    } else {
-      onLog({
-        completed: true, mode: "asPlanned",
-        actualSets: Number(actualSets) || block.sets,
-        actualReps, actualWeight: actualWeight === "" ? null : fromDisplay(actualWeight, unit),
-        perSet: null, notes, source: "client", unit,
-      });
-    }
-  };
-
-  return (
-    <div className="card p-4">
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex items-start gap-2.5">
-          <span className={`dot mt-1.5 ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
-          <div>
-            <div className="text-[14px] font-medium">{ex.name}</div>
-            <div className="mono text-[10px] uppercase tracking-wider mt-0.5" style={{color:"var(--muted)"}}>
-              target {block.sets}×{block.reps}
-            </div>
-          </div>
-        </div>
-        <button onClick={onRemove} className="p-1 rounded hover-lift" style={{color:"var(--muted)"}}><X size={13}/></button>
-      </div>
-
-      {!modified ? (
-        <div className="grid grid-cols-3 gap-2 mt-3 mb-3">
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Sets</label>
-            <input type="text" inputMode="numeric" value={actualSets} onChange={e => setActualSets(filterNumericInput(e.target.value, true))} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Reps</label>
-            <input type="text" value={actualReps} onChange={e => setActualReps(e.target.value)} className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-          <div>
-            <label className="mono text-[9px] uppercase tracking-[0.15em]" style={{color:"var(--muted)"}}>Weight ({unitLabel(unit)})</label>
-            <input type="text" inputMode="decimal" value={actualWeight} onChange={e => setActualWeight(filterNumericInput(e.target.value))} placeholder="—" className="field mt-1 tabular" style={{padding:"7px 10px", fontSize:"13px"}}/>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-1.5 mt-3 mb-3">
-          {perSet.map((s, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="mono text-[10px] uppercase tabular w-10" style={{color:"var(--muted)"}}>Set {i+1}</span>
-              <input type="text" value={s.reps} onChange={e => updatePerSet(i, {reps: e.target.value})} placeholder="reps"
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              <input type="text" inputMode="decimal" value={s.weight} onChange={e => updatePerSet(i, {weight: filterNumericInput(e.target.value)})} placeholder={unitLabel(unit)}
-                className="field tabular" style={{padding:"6px 10px", fontSize:"13px", flex:1}}/>
-              <button onClick={() => removeRow(i)} className="p-1 rounded" style={{color:"var(--muted)"}}><X size={12}/></button>
-            </div>
-          ))}
-          <button onClick={addRow} className="text-[11px] mono uppercase tracking-wider hover-lift px-2 py-1 rounded" style={{color:"var(--ink-2)"}}>+ Add set</button>
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 mb-3">
-        <label className="flex items-center gap-1.5 text-[12px] cursor-pointer" style={{color:"var(--ink-2)"}}>
-          <input type="checkbox" checked={modified} onChange={toggleModified}/>
-          Modified
-        </label>
-        <input type="text" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes"
-          className="field" style={{padding:"6px 10px", fontSize:"12px", flex:1}}/>
-      </div>
-
-      <button onClick={markDone} className="btn btn-accent w-full justify-center">
-        <Check size={14}/> Mark done
-      </button>
     </div>
   );
 }
@@ -4771,7 +5462,7 @@ function ClientExercisePicker({ exercises, client, onClose, onPick }) {
             <span className={`dot ${movementClass(ex.movement)}`} style={{width:"8px",height:"8px"}}/>
             <div className="flex-1 min-w-0">
               <div className="text-[13px] font-medium truncate">{ex.name}</div>
-              <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{ex.defReps}</div>
+              <div className="mono text-[10px] uppercase" style={{color:"var(--muted)"}}>{ex.defSets}×{exDefValue(ex)}</div>
             </div>
             <Plus size={13} style={{color:"var(--muted)"}}/>
           </button>
@@ -4782,21 +5473,27 @@ function ClientExercisePicker({ exercises, client, onClose, onPick }) {
   );
 }
 
-function ClientNotesTab({ client, onUpdateClient }) {
-  const [entries, setEntries] = useState(client.clientNotes || []);
+function ClientNotesTab({ client }) {
+  const { clientNotes: entries, createNote, deleteNote } = useClientNotes(client.id);
   const [draft, setDraft] = useState("");
 
-  const save = () => {
+  const save = async () => {
     if (!draft.trim()) return;
-    const next = [{ id: uid("note"), date: today(), ts: Date.now(), body: draft.trim() }, ...entries];
-    setEntries(next);
-    onUpdateClient({ clientNotes: next });
-    setDraft("");
+    try {
+      await createNote({ date: today(), ts: Date.now(), body: draft.trim() });
+      setDraft("");
+    } catch (err) {
+      console.error("createNote failed", err);
+      alert("Failed to save note. Please try again.");
+    }
   };
-  const remove = (id) => {
-    const next = entries.filter(e => e.id !== id);
-    setEntries(next);
-    onUpdateClient({ clientNotes: next });
+  const remove = async (id) => {
+    try {
+      await deleteNote(id);
+    } catch (err) {
+      console.error("deleteNote failed", err);
+      alert("Failed to delete note. Please try again.");
+    }
   };
 
   return (
@@ -4843,89 +5540,3 @@ function ClientNotesTab({ client, onUpdateClient }) {
   );
 }
 
-
-function seedDemoWorkouts(clients, exercises) {
-  const byName = (n) => exercises.find(e => e.name === n);
-  const t = today();
-  const workouts = [];
-
-  // Maya — today
-  const maya = clients[0];
-  if (maya) workouts.push({
-    id: uid("w"), name: "Lower — Strength", clientId: maya.id, date: t, isTemplate: false,
-    blocks: [
-      { exId: byName("Back Squat").id, sets: 4, reps: "5", rest: 180, notes: "Work up to 85%" },
-      { exId: byName("Romanian Deadlift").id, sets: 3, reps: "8", rest: 120, notes: "" },
-      { exId: byName("Bulgarian Split Squat").id, sets: 3, reps: "8/leg", rest: 90, notes: "" },
-      { exId: byName("Plank").id, sets: 3, reps: "45s", rest: 45, notes: "" },
-    ]
-  });
-
-  // Daniel — today
-  const daniel = clients[1];
-  if (daniel) workouts.push({
-    id: uid("w"), name: "Mobility + Accessory", clientId: daniel.id, date: t, isTemplate: false,
-    blocks: [
-      { exId: byName("Cat-Cow").id, sets: 2, reps: "8", rest: 0, notes: "Warm up" },
-      { exId: byName("90/90 Hip Switch").id, sets: 2, reps: "6/side", rest: 0, notes: "" },
-      { exId: byName("Goblet Squat").id, sets: 3, reps: "10", rest: 90, notes: "Light" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "12", rest: 75, notes: "" },
-      { exId: byName("Face Pull").id, sets: 3, reps: "15", rest: 45, notes: "" },
-    ]
-  });
-
-  // Jonah — tomorrow
-  const jonah = clients[3];
-  if (jonah) workouts.push({
-    id: uid("w"), name: "Upper — Heavy", clientId: jonah.id, date: addDays(t,1), isTemplate: false,
-    blocks: [
-      { exId: byName("Bench Press").id, sets: 5, reps: "3", rest: 180, notes: "Top set @ 90%" },
-      { exId: byName("Pull-up").id, sets: 4, reps: "6", rest: 120, notes: "Weighted if possible" },
-      { exId: byName("Overhead Press").id, sets: 4, reps: "6", rest: 120, notes: "" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "10", rest: 75, notes: "" },
-    ]
-  });
-
-  // Serafina — in 2 days
-  const serafina = clients[2];
-  if (serafina) workouts.push({
-    id: uid("w"), name: "Prenatal Strength A", clientId: serafina.id, date: addDays(t,2), isTemplate: false,
-    blocks: [
-      { exId: byName("Goblet Squat").id, sets: 3, reps: "10", rest: 90, notes: "Moderate load" },
-      { exId: byName("Hip Thrust").id, sets: 4, reps: "10", rest: 90, notes: "Glute focus" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "12", rest: 75, notes: "" },
-      { exId: byName("Cat-Cow").id, sets: 2, reps: "8", rest: 0, notes: "Cooldown" },
-    ]
-  });
-
-  // Template
-  workouts.push({
-    id: uid("w"), name: "Full-Body Starter (Template)", clientId: null, date: null, isTemplate: true,
-    blocks: [
-      { exId: byName("Goblet Squat").id, sets: 3, reps: "10", rest: 90, notes: "" },
-      { exId: byName("Dumbbell Bench Press").id, sets: 3, reps: "10", rest: 90, notes: "" },
-      { exId: byName("Dumbbell Row").id, sets: 3, reps: "10", rest: 75, notes: "" },
-      { exId: byName("Hip Thrust").id, sets: 3, reps: "12", rest: 75, notes: "" },
-      { exId: byName("Plank").id, sets: 3, reps: "30s", rest: 45, notes: "" },
-    ]
-  });
-
-  // Past workouts for Maya (for progress/history demo)
-  if (maya) {
-    [7, 14, 21, 28].forEach((d,i) => {
-      workouts.push({
-        id: uid("w"), name: "Lower — Strength", clientId: maya.id, date: addDays(t, -d), isTemplate: false,
-        blocks: [
-          { exId: byName("Back Squat").id, sets: 4, reps: "5", rest: 180, notes: "" },
-          { exId: byName("Romanian Deadlift").id, sets: 3, reps: "8", rest: 120, notes: "" },
-        ]
-      });
-    });
-  }
-
-  // Attach coachId — derive from client or default to first seed coach
-  return workouts.map(w => ({
-    ...w,
-    coachId: w.clientId ? (clients.find(c => c.id === w.clientId)?.coachId || "coach_alex") : "coach_alex"
-  }));
-}
