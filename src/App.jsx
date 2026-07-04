@@ -1782,7 +1782,17 @@ function Sidebar({ view, setView, clients, selectedClientId, onSelectClient, onA
           <div className="px-3 py-4 text-sm text-center" style={{color:"var(--muted)"}}>No matches.</div>
         )}
         {active.length === 0 && (
-          <div className="px-3 py-4 text-sm text-center" style={{color:"var(--muted)"}}>No active clients.</div>
+          archived.length === 0 ? (
+            <div className="px-3 py-6 text-center">
+              <div className="text-sm font-medium mb-1" style={{color:"var(--ink)"}}>No clients yet</div>
+              <div className="text-xs mb-3" style={{color:"var(--muted)"}}>Add your first client to start building and logging workouts.</div>
+              <button onClick={() => setAdding(true)} className="btn btn-primary btn-sm justify-center w-full">
+                <Plus size={13}/> Add your first client
+              </button>
+            </div>
+          ) : (
+            <div className="px-3 py-4 text-sm text-center" style={{color:"var(--muted)"}}>No active clients.</div>
+          )
         )}
 
         {archived.length > 0 && (
