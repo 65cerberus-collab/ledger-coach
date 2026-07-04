@@ -2762,14 +2762,35 @@ function LoggedSetsGrid({ log, block, logUnit }) {
 function HistoryTab({ client, clientWorkouts, exercises, logs, attendance, unitPref = "lb" }) {
   const [openId, setOpenId] = useState(null);
   const past = clientWorkouts.filter(w => w.date <= today()).sort((a,b) => b.date.localeCompare(a.date));
-  const totalExercises = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId)).length;
   const attendedCount = attendance.filter(a => a.status === "present" && clientWorkouts.some(w => w.id === a.workoutId)).length;
+  const pastSessions = clientWorkouts.filter(w => !w.isTemplate && w.date <= today()).length;
+  const attendanceRate = pastSessions ? Math.round((attendedCount / pastSessions) * 100) : 100;
+  const recentPRCount = useMemo(() => {
+    const clientLogs = logs.filter(l => clientWorkouts.some(w => w.id === l.workoutId));
+    const rows = [];
+    clientLogs.forEach(l => (l.sets || []).forEach(s => {
+      const w = Number(s.weightLb) || 0;
+      if (w > 0) rows.push({ exId: l.exId, weight: w, date: l.date });
+    }));
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+    const runningMax = {};
+    const cutoff = addDays(today(), -28);
+    let count = 0;
+    rows.forEach(r => {
+      const prev = runningMax[r.exId];
+      if (prev == null) { runningMax[r.exId] = r.weight; }
+      else if (r.weight > prev) {
+        runningMax[r.exId] = r.weight;
+        if (r.date >= cutoff && exercises.some(e => e.id === r.exId)) count++;
+      }
+    });
+    return count;
+  }, [logs, clientWorkouts, exercises]);
   return (
     <div>
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <StatCard label="Workouts completed" value={attendedCount} />
-        <StatCard label="Exercises logged" value={totalExercises} />
-        <StatCard label="Weeks training" value={Math.max(1, Math.floor((Date.now() - new Date(client.since+"T00:00:00").getTime()) / (1000*60*60*24*7)))} />
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        <StatCard label="Attendance" value={attendanceRate + "%"} />
+        <StatCard label="PRs · 4 wks" value={recentPRCount} />
       </div>
       <h2 className="display text-2xl tracking-tight mb-4">Full timeline</h2>
       {past.length === 0 ? (
