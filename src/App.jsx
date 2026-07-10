@@ -44,6 +44,7 @@ const GlobalStyles = () => (
     body {
       background: var(--paper);
       color: var(--ink);
+      font-size: 17px;
       font-family: 'Instrument Sans', system-ui, sans-serif;
       font-feature-settings: "ss01", "cv11";
       -webkit-font-smoothing: antialiased;
@@ -133,6 +134,11 @@ const GlobalStyles = () => (
 
     .tick { animation: tick 240ms cubic-bezier(.3,1.4,.5,1); }
     @keyframes tick { 0% { transform: scale(.6); opacity: .3; } 100% { transform: scale(1); opacity: 1; } }
+
+    .btn { font-size: 15px; }
+    .btn-sm { font-size: 14px; }
+    .field { font-size: 15px; }
+    .chip { font-size: 13px; }
   `}</style>
 );
 
@@ -566,7 +572,7 @@ export default function CoachApp() {
   }
 
   return (
-    <div className="h-screen w-full flex flex-col overflow-hidden paper-grain" style={{background:"var(--paper)"}}>
+    <div className="h-screen w-full flex flex-col overflow-hidden paper-grain" style={{background:"var(--paper)", paddingTop:"env(safe-area-inset-top)"}}>
       <GlobalStyles />
       {view !== "clientView" && <TopBar coaches={coaches} currentCoach={currentCoach} onSwitch={switchCoach} onAddProfile={() => setIsAddProfileOpen(true)} onArchive={archiveCoach} onRestore={restoreCoach} onSignOut={handleSignOut}/>}
       {archivePending && (
@@ -1661,10 +1667,10 @@ function HelpModal({ onClose, audience = "coach" }) {
           <aside className="w-60 flex-shrink-0 flex flex-col" style={{borderRight:"1px solid var(--line)", background:"var(--paper-2)"}}>
             <div className="p-3" style={{borderBottom:"1px solid var(--line-2)"}}>
               <div className="relative">
-                <Search size={13} style={{position:"absolute", left:"10px", top:"50%", transform:"translateY(-50%)", color:"var(--muted)"}}/>
+                <Search size={13} style={{position:"absolute", left:"11px", top:"50%", transform:"translateY(-50%)", color:"var(--muted)"}}/>
                 <input value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="Search…"
-                  className="field text-sm" style={{paddingLeft:"30px", padding:"7px 10px 7px 30px", fontSize:"13px"}}/>
+                  className="field text-sm" style={{padding:"7px 10px 7px 34px", fontSize:"13px"}}/>
               </div>
             </div>
             <nav className="flex-1 overflow-y-auto p-2">
@@ -1761,7 +1767,7 @@ function Sidebar({ view, setView, clients, selectedClientId, onSelectClient, onA
         <Search size={14} className="absolute top-1/2 -translate-y-1/2" style={{color:"var(--muted)", left: '22px'}}/>
         <input
           value={search} onChange={e => setSearch(e.target.value)} placeholder="Search clients"
-          className="w-full pl-8 pr-3 py-2 rounded-lg text-sm ring-focus"
+          className="w-full pl-9 pr-3 py-2 rounded-lg text-sm ring-focus"
           style={{background:"#fff", border:"1px solid var(--line)"}}
         />
       </div>
@@ -4323,7 +4329,7 @@ function WorkoutBuilder({ ctx, exercises, clients, workouts, logs = [], notify, 
             </div>
             <div className="relative mb-2">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{color:"var(--muted)"}}/>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="field pl-8"/>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="field pl-9"/>
             </div>
             <div className="flex flex-wrap gap-1 mb-1.5">
               {["push","pull","squat","hinge","core","cardio","mobility","stretch"].map(m => (
@@ -5445,7 +5451,7 @@ function ClientExercisePicker({ exercises, client, onClose, onPick }) {
     <Modal onClose={onClose} title="Pick an exercise">
       <div className="relative mb-3">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{color:"var(--muted)"}}/>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="field pl-8" autoFocus/>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…" className="field pl-9" autoFocus/>
       </div>
       <div className="flex flex-wrap gap-1 mb-3">
         {["push","pull","squat","hinge","core","cardio","mobility","stretch"].map(m => (
